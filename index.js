@@ -33,6 +33,7 @@ const sheets = new google.sheets({
 });
 
 const PERSONNEL_RANGE = 'A:G';
+const PUNISHMENTS_RANGE = 'Punishments!A:H';
 
 /* ----------------------------- HELPERS ----------------------------- */
 
@@ -52,6 +53,15 @@ async function getAllRows() {
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
     range: PERSONNEL_RANGE,
+  });
+
+  return response.data.values || [];
+}
+
+async function getPunishmentRows() {
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: PUNISHMENTS_RANGE,
   });
 
   return response.data.values || [];
@@ -80,6 +90,30 @@ async function ensureHeader() {
   }
 }
 
+async function ensurePunishmentsHeader() {
+  const rows = await getPunishmentRows();
+
+  if (rows.length === 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: 'Punishments!A1:H1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [[
+          'Case ID',
+          'Target Discord Username',
+          'Target Discord ID',
+          'Action Type',
+          'Reason',
+          'Moderator Username',
+          'Moderator ID',
+          'Timestamp'
+        ]]
+      }
+    });
+  }
+}
+
 function findUserRow(rows, discordId) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][2] === discordId) {
@@ -90,6 +124,18 @@ function findUserRow(rows, discordId) {
 }
 
 function getNextId(rows) {
+  if (rows.length <= 1) return 1;
+
+  const ids = rows
+    .slice(1)
+    .map(row => Number(row[0]))
+    .filter(id => !Number.isNaN(id));
+
+  if (ids.length === 0) return 1;
+  return Math.max(...ids) + 1;
+}
+
+function getNextCaseId(rows) {
   if (rows.length <= 1) return 1;
 
   const ids = rows
@@ -123,6 +169,17 @@ async function updateRow(rowNumber, data) {
   });
 }
 
+async function addPunishmentRow(data) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: PUNISHMENTS_RANGE,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [data],
+    },
+  });
+}
+
 function buildVerifyEmbed(discordName, idNumber, robloxUsername, role, status) {
   return new EmbedBuilder()
     .setColor(0x8B0000)
@@ -132,35 +189,13 @@ function buildVerifyEmbed(discordName, idNumber, robloxUsername, role, status) {
       `The following information has been successfully logged in the Empire Database.`
     )
     .addFields(
-      {
-        name: 'ID Number Issued',
-        value: `\`${formatIdNumber(idNumber)}\``,
-        inline: false
-      },
-      {
-        name: 'Roblox Username Logged',
-        value: `\`${robloxUsername}\``,
-        inline: false
-      },
-      {
-        name: 'Rank Logged',
-        value: `\`${role}\``,
-        inline: false
-      },
-      {
-        name: 'Enlistment Status',
-        value: `\`${status}\``,
-        inline: false
-      },
-      {
-        name: 'Status',
-        value: '`Verified`',
-        inline: false
-      }
+      { name: 'ID Number Issued', value: `\`${formatIdNumber(idNumber)}\``, inline: false },
+      { name: 'Roblox Username Logged', value: `\`${robloxUsername}\``, inline: false },
+      { name: 'Rank Logged', value: `\`${role}\``, inline: false },
+      { name: 'Enlistment Status', value: `\`${status}\``, inline: false },
+      { name: 'Status', value: '`Verified`', inline: false }
     )
-    .setFooter({
-      text: 'Empire Verification System • Database Entry Confirmed'
-    })
+    .setFooter({ text: 'Empire Verification System • Database Entry Confirmed' })
     .setTimestamp();
 }
 
@@ -173,35 +208,13 @@ function buildUpdateEmbed(discordName, idNumber, robloxUsername, role, status) {
       `Your personnel record has been successfully updated in the Empire Database.`
     )
     .addFields(
-      {
-        name: 'ID Number Retained',
-        value: `\`${formatIdNumber(idNumber)}\``,
-        inline: false
-      },
-      {
-        name: 'Roblox Username Logged',
-        value: `\`${robloxUsername}\``,
-        inline: false
-      },
-      {
-        name: 'Rank Logged',
-        value: `\`${role}\``,
-        inline: false
-      },
-      {
-        name: 'Enlistment Status',
-        value: `\`${status}\``,
-        inline: false
-      },
-      {
-        name: 'Status',
-        value: '`Updated`',
-        inline: false
-      }
+      { name: 'ID Number Retained', value: `\`${formatIdNumber(idNumber)}\``, inline: false },
+      { name: 'Roblox Username Logged', value: `\`${robloxUsername}\``, inline: false },
+      { name: 'Rank Logged', value: `\`${role}\``, inline: false },
+      { name: 'Enlistment Status', value: `\`${status}\``, inline: false },
+      { name: 'Status', value: '`Updated`', inline: false }
     )
-    .setFooter({
-      text: 'Empire Verification System • Record Successfully Updated'
-    })
+    .setFooter({ text: 'Empire Verification System • Record Successfully Updated' })
     .setTimestamp();
 }
 
@@ -261,9 +274,7 @@ function buildRosterEmbed(rows, page = 1, pageSize = 10) {
     .setColor(0x5A0000)
     .setTitle('EMPIRE ROSTER')
     .setDescription(description)
-    .setFooter({
-      text: `Empire Verification System • Page ${page}`
-    })
+    .setFooter({ text: `Empire Verification System • Page ${page}` })
     .setTimestamp();
 }
 
@@ -297,23 +308,54 @@ function buildRosterCountsEmbed(rows) {
     .setColor(0x7A0000)
     .setTitle('EMPIRE ROSTER COUNTS')
     .addFields(
-      {
-        name: 'Total Personnel Records',
-        value: `\`${total}\``,
-        inline: false
-      },
-      {
-        name: 'Counts by Enlistment Status',
-        value: statusText,
-        inline: false
-      },
-      {
-        name: 'Top Rank Counts',
-        value: rankText,
-        inline: false
-      }
+      { name: 'Total Personnel Records', value: `\`${total}\``, inline: false },
+      { name: 'Counts by Enlistment Status', value: statusText, inline: false },
+      { name: 'Top Rank Counts', value: rankText, inline: false }
     )
     .setFooter({ text: 'Empire Verification System • Roster Summary' })
+    .setTimestamp();
+}
+
+function buildWarnEmbed(targetUser, caseId, reason, moderatorTag) {
+  return new EmbedBuilder()
+    .setColor(0xAA0000)
+    .setTitle('DISCIPLINARY ACTION LOGGED')
+    .setDescription(`A warning has been recorded in the Empire Database for **${targetUser.tag}**.`)
+    .addFields(
+      { name: 'Case ID', value: `\`${formatIdNumber(caseId)}\``, inline: false },
+      { name: 'Action Type', value: '`Warn`', inline: false },
+      { name: 'Reason', value: `\`${reason}\``, inline: false },
+      { name: 'Logged By', value: `\`${moderatorTag}\``, inline: false }
+    )
+    .setFooter({ text: 'Empire Moderation System • Warning Logged' })
+    .setTimestamp();
+}
+
+function buildPunishmentsEmbed(targetUser, rows) {
+  const userRows = rows
+    .slice(1)
+    .filter(row => row[2] === targetUser.id);
+
+  const description = userRows.length
+    ? userRows.slice(-10).reverse().map(row => {
+        const caseId = formatIdNumber(row[0] || '0');
+        const actionType = row[3] || 'Unknown';
+        const reason = row[4] || 'No reason provided';
+        const moderator = row[5] || 'Unknown';
+        const timestamp = row[7] || 'Unknown';
+
+        return `**Case ${caseId}** • \`${actionType}\`\n` +
+               `Reason: \`${reason}\`\n` +
+               `Moderator: \`${moderator}\`\n` +
+               `Time: \`${timestamp}\``;
+      }).join('\n\n')
+    : 'No punishments found for this user.';
+
+  return new EmbedBuilder()
+    .setColor(0x8A0000)
+    .setTitle('PUNISHMENT HISTORY')
+    .setDescription(`Punishment history for **${targetUser.tag}**\n\n${description}`)
+    .setFooter({ text: 'Empire Moderation System • History Lookup' })
     .setTimestamp();
 }
 
@@ -355,6 +397,7 @@ async function replyNotBuilt(interaction, commandName) {
 
 client.once('ready', async () => {
   await ensureHeader();
+  await ensurePunishmentsHeader();
   console.log('BOT ONLINE');
 });
 
@@ -536,6 +579,39 @@ client.on('interactionCreate', async interaction => {
         return;
       }
 
+      if (command === 'warn') {
+        const targetUser = interaction.options.getUser('user');
+        const reason = interaction.options.getString('reason');
+        const punishmentRows = await getPunishmentRows();
+        const caseId = getNextCaseId(punishmentRows);
+
+        await addPunishmentRow([
+          caseId,
+          targetUser.tag,
+          targetUser.id,
+          'Warn',
+          reason,
+          interaction.user.tag,
+          interaction.user.id,
+          new Date().toISOString()
+        ]);
+
+        await interaction.reply({
+          embeds: [buildWarnEmbed(targetUser, caseId, reason, interaction.user.tag)]
+        });
+        return;
+      }
+
+      if (command === 'punishments') {
+        const targetUser = interaction.options.getUser('user');
+        const punishmentRows = await getPunishmentRows();
+
+        await interaction.reply({
+          embeds: [buildPunishmentsEmbed(targetUser, punishmentRows)]
+        });
+        return;
+      }
+
       if (command === 'ping') {
         await interaction.reply({ content: 'Pong. Bot is online.' });
         return;
@@ -552,6 +628,8 @@ client.on('interactionCreate', async interaction => {
             '`/status user:@member` - show one user enlistment status\n' +
             '`/roster` - show personnel roster\n' +
             '`/rostercounts` - show roster totals\n' +
+            '`/warn user:@member reason:<text>` - log a warning\n' +
+            '`/punishments user:@member` - show punishment history\n' +
             '`/ping` - bot status\n\n' +
             'Other commands are registered and will be wired next.'
         });
@@ -646,14 +724,12 @@ client.on('interactionCreate', async interaction => {
       if (command === 'loa') return replyNotBuilt(interaction, '/loa');
       if (command === 'return') return replyNotBuilt(interaction, '/return');
 
-      if (command === 'warn') return replyNotBuilt(interaction, '/warn');
       if (command === 'strike') return replyNotBuilt(interaction, '/strike');
       if (command === 'note') return replyNotBuilt(interaction, '/note');
       if (command === 'mute') return replyNotBuilt(interaction, '/mute');
       if (command === 'kick') return replyNotBuilt(interaction, '/kick');
       if (command === 'ban') return replyNotBuilt(interaction, '/ban');
       if (command === 'unban') return replyNotBuilt(interaction, '/unban');
-      if (command === 'punishments') return replyNotBuilt(interaction, '/punishments');
       if (command === 'modhistory') return replyNotBuilt(interaction, '/modhistory');
       if (command === 'clearwarn') return replyNotBuilt(interaction, '/clearwarn');
       if (command === 'cases') return replyNotBuilt(interaction, '/cases');

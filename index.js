@@ -34,7 +34,7 @@ const sheets = new google.sheets({
 
 const PERSONNEL_RANGE = 'A:G';
 const PUNISHMENTS_RANGE = 'Punishments!A:H';
-const RANK_HISTORY_RANGE = 'Rank History!A:I';
+const RANK_HISTORY_RANGE = 'Rank History!A:J';
 
 /* ----------------------------- HELPERS ----------------------------- */
 
@@ -130,7 +130,7 @@ async function ensureRankHistoryHeader() {
   if (rows.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: 'Rank History!A1:I1',
+      range: 'Rank History!A1:J1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [[
@@ -142,6 +142,7 @@ async function ensureRankHistoryHeader() {
           'New Rank',
           'Reason',
           'Moderator Username',
+          'Moderator ID',
           'Timestamp'
         ]]
       }
@@ -226,16 +227,26 @@ async function addRankHistoryRow(data) {
   });
 }
 
-async function tryApplyRoleChange(guild, userId, newRole) {
+async function tryApplyRoleChange(guild, userId, oldRankName, newRole) {
   try {
     const member = await guild.members.fetch(userId);
+
+    if (oldRankName && oldRankName !== 'No Rank') {
+      const oldRole = member.roles.cache.find(role => role.name === oldRankName);
+      if (oldRole) {
+        await member.roles.remove(oldRole);
+      }
+    }
+
     await member.roles.add(newRole);
     return true;
   } catch (error) {
-    console.error('Role add failed:', error);
+    console.error('Role change failed:', error);
     return false;
   }
 }
+
+/* ----------------------------- EMBEDS ----------------------------- */
 
 function buildVerifyEmbed(discordName, idNumber, robloxUsername, role, status) {
   return new EmbedBuilder()
@@ -416,7 +427,7 @@ function buildPunishmentsEmbed(targetUser, rows) {
     .setTimestamp();
 }
 
-function buildRankChangeEmbed(actionType, targetUser, caseId, oldRank, newRank, reason, moderatorTag, roleApplied) {
+function buildRankChangeEmbed(actionType, targetUser, caseId, oldRank, newRank, reason, moderatorTag, moderatorId, roleApplied) {
   return new EmbedBuilder()
     .setColor(0x990000)
     .setTitle('RANK ACTION LOGGED')
@@ -428,6 +439,7 @@ function buildRankChangeEmbed(actionType, targetUser, caseId, oldRank, newRank, 
       { name: 'New Rank', value: `\`${newRank}\``, inline: false },
       { name: 'Reason', value: `\`${reason}\``, inline: false },
       { name: 'Logged By', value: `\`${moderatorTag}\``, inline: false },
+      { name: 'Moderator ID', value: `\`${moderatorId}\``, inline: false },
       { name: 'Discord Role Applied', value: roleApplied ? '`Yes`' : '`No`', inline: false },
     )
     .setFooter({ text: 'Empire Promotion System • Rank Action Logged' })
@@ -447,13 +459,15 @@ function buildRankHistoryEmbed(targetUser, rows) {
         const newRank = row[5] || 'Unknown';
         const reason = row[6] || 'No reason provided';
         const moderator = row[7] || 'Unknown';
-        const timestamp = row[8] || 'Unknown';
+        const moderatorId = row[8] || 'Unknown';
+        const timestamp = row[9] || 'Unknown';
 
         return `**Case ${caseId}** • \`${actionType}\`\n` +
                `Old Rank: \`${oldRank}\`\n` +
                `New Rank: \`${newRank}\`\n` +
                `Reason: \`${reason}\`\n` +
                `By: \`${moderator}\`\n` +
+               `Moderator ID: \`${moderatorId}\`\n` +
                `Time: \`${timestamp}\``;
       }).join('\n\n')
     : 'No rank history found for this user.';
@@ -480,10 +494,12 @@ function buildRecentRankLogEmbed(title, rows, filterType) {
         const oldRank = row[4] || 'Unknown';
         const newRank = row[5] || 'Unknown';
         const moderator = row[7] || 'Unknown';
+        const moderatorId = row[8] || 'Unknown';
 
         return `**Case ${caseId}** • ${target}\n` +
                `\`${oldRank}\` → \`${newRank}\`\n` +
-               `By: \`${moderator}\``;
+               `By: \`${moderator}\`\n` +
+               `Moderator ID: \`${moderatorId}\``;
       }).join('\n\n')
     : `No ${filterType.toLowerCase()} records found.`;
 
@@ -506,7 +522,8 @@ function buildWhoPromotedEmbed(targetUser, row) {
       { name: 'New Rank', value: `\`${row[5] || 'Unknown'}\``, inline: false },
       { name: 'Reason', value: `\`${row[6] || 'Unknown'}\``, inline: false },
       { name: 'Logged By', value: `\`${row[7] || 'Unknown'}\``, inline: false },
-      { name: 'Timestamp', value: `\`${row[8] || 'Unknown'}\``, inline: false },
+      { name: 'Moderator ID', value: `\`${row[8] || 'Unknown'}\``, inline: false },
+      { name: 'Timestamp', value: `\`${row[9] || 'Unknown'}\``, inline: false },
     )
     .setFooter({ text: 'Empire Promotion System • Last Change Lookup' })
     .setTimestamp();
@@ -787,7 +804,12 @@ client.on('interactionCreate', async interaction => {
           command === 'promote' ? 'Promote' :
           command === 'demote' ? 'Demote' : 'Set Rank';
 
-        const roleApplied = await tryApplyRoleChange(interaction.guild, targetUser.id, newRankRole);
+        const roleApplied = await tryApplyRoleChange(
+          interaction.guild,
+          targetUser.id,
+          oldRank,
+          newRankRole
+        );
 
         await updateRow(rowNumber, [
           personnelRow[0] || '',
@@ -808,6 +830,7 @@ client.on('interactionCreate', async interaction => {
           newRankRole.name,
           reason,
           interaction.user.tag,
+          interaction.user.id,
           new Date().toISOString()
         ]);
 
@@ -820,6 +843,7 @@ client.on('interactionCreate', async interaction => {
             newRankRole.name,
             reason,
             interaction.user.tag,
+            interaction.user.id,
             roleApplied
           )]
         });

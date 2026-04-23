@@ -7,15 +7,6 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
 
-const RANK_ROLES = [
-  "Cadet",
-  "Initiate",
-  "Veteran Warrior",
-  "Chief Enforcer",
-  "Blood Marshal",
-  "Elite Conqueror"
-];
-
 const sheets = new google.sheets({
   version: 'v4',
   auth: new google.auth.GoogleAuth({
@@ -28,8 +19,11 @@ const sheets = new google.sheets({
 });
 
 function getRank(member) {
-  const roles = member.roles.cache.map(r => r.name);
-  return RANK_ROLES.find(r => roles.includes(r)) || "No Rank";
+  const roles = member.roles.cache
+    .filter(role => role.name !== '@everyone')
+    .sort((a, b) => b.position - a.position);
+
+  return roles.first()?.name || 'No Rank';
 }
 
 async function addRow(data) {
@@ -44,7 +38,7 @@ async function addRow(data) {
 }
 
 client.once('ready', () => {
-  console.log("BOT ONLINE");
+  console.log('BOT ONLINE');
 });
 
 client.on('interactionCreate', async interaction => {
@@ -64,7 +58,7 @@ client.on('interactionCreate', async interaction => {
       new Date().toISOString()
     ]);
 
-    await interaction.reply("Verified and saved.");
+    await interaction.reply(`Verified and saved. Detected role: ${rank}`);
   }
 });
 

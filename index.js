@@ -36,6 +36,7 @@ const PERSONNEL_RANGE = 'A:G';
 const PUNISHMENTS_RANGE = 'Punishments!A:H';
 const EVENTS_RANGE = 'Events!A:K';
 const REPORTS_RANGE = 'Reports!A:K';
+const RANK_HISTORY_RANGE = 'Rank History!A:J';
 
 /* ----------------------------- HELPERS ----------------------------- */
 
@@ -82,6 +83,15 @@ async function getReportRows() {
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
     range: REPORTS_RANGE,
+  });
+
+  return response.data.values || [];
+}
+
+async function getRankHistoryRows() {
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: RANK_HISTORY_RANGE,
   });
 
   return response.data.values || [];
@@ -182,6 +192,32 @@ async function ensureReportsHeader() {
           'Result',
           'Created At',
           'Closed At'
+        ]]
+      }
+    });
+  }
+}
+
+async function ensureRankHistoryHeader() {
+  const rows = await getRankHistoryRows();
+
+  if (rows.length === 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: 'Rank History!A1:J1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [[
+          'Case ID',
+          'Target Discord Username',
+          'Target Discord ID',
+          'Action Type',
+          'Old Rank',
+          'New Rank',
+          'Reason',
+          'Moderator Username',
+          'Moderator ID',
+          'Timestamp'
         ]]
       }
     });
@@ -331,6 +367,37 @@ async function updateReportRow(rowNumber, data) {
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [data] },
   });
+}
+
+async function addRankHistoryRow(data) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: RANK_HISTORY_RANGE,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [data] },
+  });
+}
+
+async function tryApplyRoleChange(guild, userId, oldRankName, newRole) {
+  try {
+    const member = await guild.members.fetch(userId);
+
+    if (oldRankName && oldRankName !== 'No Rank' && oldRankName !== '@everyone') {
+      const oldRole = guild.roles.cache.find(role => role.name === oldRankName);
+      if (oldRole && member.roles.cache.has(oldRole.id)) {
+        await member.roles.remove(oldRole);
+      }
+    }
+
+    if (newRole.name !== '@everyone' && !member.roles.cache.has(newRole.id)) {
+      await member.roles.add(newRole);
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Role change failed:', error);
+    return false;
+  }
 }
 
 /* ----------------------------- EMBEDS ----------------------------- */
@@ -687,6 +754,97 @@ function buildReportHistoryEmbed(targetUser, rows) {
     .setTimestamp();
 }
 
+function buildRankChangeEmbed(actionType, targetUser, caseId, oldRank, newRank, reason, moderatorTag, moderatorId, roleApplied) {
+  return new EmbedBuilder()
+    .setColor(0x990000)
+    .setTitle('RANK ACTION LOGGED')
+    .setDescription(`A rank action has been recorded for **${targetUser.tag}**.`)
+    .addFields(
+      { name: 'Case ID', value: `\`${formatIdNumber(caseId)}\``, inline: false },
+      { name: 'Action Type', value: `\`${actionType}\``, inline: false },
+      { name: 'Old Rank', value: `\`${oldRank}\``, inline: false },
+      { name: 'New Rank', value: `\`${newRank}\``, inline: false },
+      { name: 'Reason', value: `\`${reason}\``, inline: false },
+      { name: 'Logged By', value: `\`${moderatorTag}\``, inline: false },
+      { name: 'Moderator ID', value: `\`${moderatorId}\``, inline: false },
+      { name: 'Discord Role Applied', value: roleApplied ? '`Yes`' : '`No`', inline: false }
+    )
+    .setFooter({ text: 'Empire Promotion System • Rank Action Logged' })
+    .setTimestamp();
+}
+
+function buildRankHistoryEmbed(targetUser, rows) {
+  const userRows = rows.slice(1).filter(row => row[2] === targetUser.id);
+
+  const description = userRows.length
+    ? userRows.slice(-10).reverse().map(row => {
+        const caseId = formatIdNumber(row[0] || '0');
+        const actionType = row[3] || 'Unknown';
+        const oldRank = row[4] || 'Unknown';
+        const newRank = row[5] || 'Unknown';
+        const reason = row[6] || 'No reason provided';
+        const moderator = row[7] || 'Unknown';
+        const moderatorId = row[8] || 'Unknown';
+        const timestamp = row[9] || 'Unknown';
+
+        return `**Case ${caseId}** • \`${actionType}\`\nOld Rank: \`${oldRank}\`\nNew Rank: \`${newRank}\`\nReason: \`${reason}\`\nBy: \`${moderator}\`\nModerator ID: \`${moderatorId}\`\nTime: \`${timestamp}\``;
+      }).join('\n\n')
+    : 'No rank history found for this user.';
+
+  return new EmbedBuilder()
+    .setColor(0x7F0000)
+    .setTitle('RANK HISTORY')
+    .setDescription(`Rank history for **${targetUser.tag}**\n\n${description}`)
+    .setFooter({ text: 'Empire Promotion System • History Lookup' })
+    .setTimestamp();
+}
+
+function buildRecentRankLogEmbed(title, rows, filterType) {
+  const data = rows
+    .slice(1)
+    .filter(row => row[3] === filterType)
+    .slice(-10)
+    .reverse();
+
+  const description = data.length
+    ? data.map(row => {
+        const caseId = formatIdNumber(row[0] || '0');
+        const target = row[1] || 'Unknown';
+        const oldRank = row[4] || 'Unknown';
+        const newRank = row[5] || 'Unknown';
+        const moderator = row[7] || 'Unknown';
+        const moderatorId = row[8] || 'Unknown';
+
+        return `**Case ${caseId}** • ${target}\n\`${oldRank}\` → \`${newRank}\`\nBy: \`${moderator}\`\nModerator ID: \`${moderatorId}\``;
+      }).join('\n\n')
+    : `No ${filterType.toLowerCase()} records found.`;
+
+  return new EmbedBuilder()
+    .setColor(0x6F0000)
+    .setTitle(title)
+    .setDescription(description)
+    .setFooter({ text: 'Empire Promotion System • Recent Activity' })
+    .setTimestamp();
+}
+
+function buildWhoPromotedEmbed(targetUser, row) {
+  return new EmbedBuilder()
+    .setColor(0x760000)
+    .setTitle('LAST RANK CHANGE')
+    .setDescription(`Last recorded rank change for **${targetUser.tag}**`)
+    .addFields(
+      { name: 'Action Type', value: `\`${row[3] || 'Unknown'}\``, inline: false },
+      { name: 'Old Rank', value: `\`${row[4] || 'Unknown'}\``, inline: false },
+      { name: 'New Rank', value: `\`${row[5] || 'Unknown'}\``, inline: false },
+      { name: 'Reason', value: `\`${row[6] || 'Unknown'}\``, inline: false },
+      { name: 'Logged By', value: `\`${row[7] || 'Unknown'}\``, inline: false },
+      { name: 'Moderator ID', value: `\`${row[8] || 'Unknown'}\``, inline: false },
+      { name: 'Timestamp', value: `\`${row[9] || 'Unknown'}\``, inline: false }
+    )
+    .setFooter({ text: 'Empire Promotion System • Last Change Lookup' })
+    .setTimestamp();
+}
+
 function buildUpdateButton() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -726,6 +884,7 @@ client.once('ready', async () => {
   await ensurePunishmentsHeader();
   await ensureEventsHeader();
   await ensureReportsHeader();
+  await ensureRankHistoryHeader();
   console.log('BOT ONLINE');
 });
 
@@ -1217,9 +1376,6 @@ client.on('interactionCreate', async interaction => {
           }
 
           const row = reportRows[rowNumber - 1];
-          row[5] = staff.tag;
-          row[6] = staff.id;
-          row[7] = row[7] || 'Assigned';
 
           await updateReportRow(rowNumber, [
             row[0] || '',
@@ -1227,8 +1383,8 @@ client.on('interactionCreate', async interaction => {
             row[2] || '',
             row[3] || '',
             row[4] || '',
-            row[5] || '',
-            row[6] || '',
+            staff.tag,
+            staff.id,
             'Assigned',
             row[8] || '',
             row[9] || '',
@@ -1252,9 +1408,6 @@ client.on('interactionCreate', async interaction => {
           }
 
           const row = reportRows[rowNumber - 1];
-          row[7] = 'Closed';
-          row[8] = result;
-          row[10] = new Date().toISOString();
 
           await updateReportRow(rowNumber, [
             row[0] || '',
@@ -1265,9 +1418,9 @@ client.on('interactionCreate', async interaction => {
             row[5] || '',
             row[6] || '',
             'Closed',
-            row[8] || '',
+            result,
             row[9] || '',
-            row[10] || ''
+            new Date().toISOString()
           ]);
 
           await interaction.reply({
@@ -1295,8 +1448,6 @@ client.on('interactionCreate', async interaction => {
           }
 
           const row = reportRows[rowNumber - 1];
-          row[7] = 'Open';
-          row[10] = '';
 
           await updateReportRow(rowNumber, [
             row[0] || '',
@@ -1319,6 +1470,124 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
+      if (command === 'promote' || command === 'demote' || command === 'setrank') {
+        const targetUser = interaction.options.getUser('user');
+        const newRankRole = interaction.options.getRole('new_rank');
+        const reason = interaction.options.getString('reason');
+
+        if (newRankRole.name === '@everyone') {
+          await interaction.reply({
+            content: 'You cannot use @everyone as a rank role. Use a real rank role instead.'
+          });
+          return;
+        }
+
+        const rows = await getAllRows();
+        const rowNumber = findUserRow(rows, targetUser.id);
+
+        if (!rowNumber) {
+          await interaction.reply({ content: 'That user is not in the personnel database.' });
+          return;
+        }
+
+        const rankRows = await getRankHistoryRows();
+        const caseId = getNextCaseId(rankRows);
+        const personnelRow = rows[rowNumber - 1];
+        const oldRank = personnelRow[3] || 'Unknown';
+
+        const actionType =
+          command === 'promote' ? 'Promote' :
+          command === 'demote' ? 'Demote' : 'Set Rank';
+
+        const roleApplied = await tryApplyRoleChange(
+          interaction.guild,
+          targetUser.id,
+          oldRank,
+          newRankRole
+        );
+
+        await updatePersonnelRow(rowNumber, [
+          personnelRow[0] || '',
+          personnelRow[1] || '',
+          personnelRow[2] || '',
+          newRankRole.name,
+          personnelRow[4] || '',
+          new Date().toISOString(),
+          personnelRow[6] || 'Active'
+        ]);
+
+        await addRankHistoryRow([
+          caseId,
+          targetUser.tag,
+          targetUser.id,
+          actionType,
+          oldRank,
+          newRankRole.name,
+          reason,
+          interaction.user.tag,
+          interaction.user.id,
+          new Date().toISOString()
+        ]);
+
+        await interaction.reply({
+          embeds: [buildRankChangeEmbed(
+            actionType,
+            targetUser,
+            caseId,
+            oldRank,
+            newRankRole.name,
+            reason,
+            interaction.user.tag,
+            interaction.user.id,
+            roleApplied
+          )]
+        });
+        return;
+      }
+
+      if (command === 'rankhistory') {
+        const targetUser = interaction.options.getUser('user');
+        const rankRows = await getRankHistoryRows();
+
+        await interaction.reply({
+          embeds: [buildRankHistoryEmbed(targetUser, rankRows)]
+        });
+        return;
+      }
+
+      if (command === 'promotionlog') {
+        const rankRows = await getRankHistoryRows();
+        await interaction.reply({
+          embeds: [buildRecentRankLogEmbed('RECENT PROMOTIONS', rankRows, 'Promote')]
+        });
+        return;
+      }
+
+      if (command === 'demotionlog') {
+        const rankRows = await getRankHistoryRows();
+        await interaction.reply({
+          embeds: [buildRecentRankLogEmbed('RECENT DEMOTIONS', rankRows, 'Demote')]
+        });
+        return;
+      }
+
+      if (command === 'who_promoted') {
+        const targetUser = interaction.options.getUser('user');
+        const rankRows = await getRankHistoryRows();
+        const userRows = rankRows.slice(1).filter(row => row[2] === targetUser.id);
+
+        if (!userRows.length) {
+          await interaction.reply({ content: 'No rank history found for that user.' });
+          return;
+        }
+
+        const latest = userRows[userRows.length - 1];
+        await interaction.reply({
+          embeds: [buildWhoPromotedEmbed(targetUser, latest)]
+        });
+        return;
+      }
+
       if (command === 'ping') {
         await interaction.reply({ content: 'Pong. Bot is online.' });
         return;
@@ -1328,8 +1597,8 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({
           content:
             '**Empire Bot Commands**\n\n' +
-            '`/verify roblox_username:<name>` - first-time verification\n' +
-            '`/update roblox_username:<name>` - update your existing record\n' +
+            '`/verify roblox_username:<name>`\n' +
+            '`/update roblox_username:<name>`\n' +
             '`/profile user:@member`\n' +
             '`/setstatus user:@member status:<Active/Inactive/LOA/Discharged>`\n' +
             '`/status user:@member`\n' +
@@ -1354,6 +1623,13 @@ client.on('interactionCreate', async interaction => {
             '`/report close caseid:<id> result:<text>`\n' +
             '`/report history user:@user`\n' +
             '`/report reopen caseid:<id>`\n' +
+            '`/promote user:@member new_rank:@role reason:<text>`\n' +
+            '`/demote user:@member new_rank:@role reason:<text>`\n' +
+            '`/setrank user:@member new_rank:@role reason:<text>`\n' +
+            '`/rankhistory user:@member`\n' +
+            '`/promotionlog`\n' +
+            '`/demotionlog`\n' +
+            '`/who_promoted user:@member`\n' +
             '`/ping`'
         });
         return;
@@ -1459,13 +1735,6 @@ client.on('interactionCreate', async interaction => {
       if (command === 'setup') return replyNotBuilt(interaction, '/setup');
       if (command === 'setlogchannel') return replyNotBuilt(interaction, '/setlogchannel');
       if (command === 'permissions') return replyNotBuilt(interaction, '/permissions');
-      if (command === 'promote') return replyNotBuilt(interaction, '/promote');
-      if (command === 'demote') return replyNotBuilt(interaction, '/demote');
-      if (command === 'setrank') return replyNotBuilt(interaction, '/setrank');
-      if (command === 'rankhistory') return replyNotBuilt(interaction, '/rankhistory');
-      if (command === 'promotionlog') return replyNotBuilt(interaction, '/promotionlog');
-      if (command === 'demotionlog') return replyNotBuilt(interaction, '/demotionlog');
-      if (command === 'who_promoted') return replyNotBuilt(interaction, '/who_promoted');
     }
 
     if (interaction.isButton()) {
@@ -1736,6 +2005,92 @@ async function start() {
         s.setName('reopen')
           .setDescription('reopen a report')
           .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
+      ),
+
+    new SlashCommandBuilder()
+      .setName('promote')
+      .setDescription('promote a user')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption(o =>
+        o.setName('user')
+          .setDescription('target user')
+          .setRequired(true)
+      )
+      .addRoleOption(o =>
+        o.setName('new_rank')
+          .setDescription('new rank role')
+          .setRequired(true)
+      )
+      .addStringOption(o =>
+        o.setName('reason')
+          .setDescription('reason')
+          .setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName('demote')
+      .setDescription('demote a user')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption(o =>
+        o.setName('user')
+          .setDescription('target user')
+          .setRequired(true)
+      )
+      .addRoleOption(o =>
+        o.setName('new_rank')
+          .setDescription('new rank role')
+          .setRequired(true)
+      )
+      .addStringOption(o =>
+        o.setName('reason')
+          .setDescription('reason')
+          .setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName('setrank')
+      .setDescription('directly set a user rank')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption(o =>
+        o.setName('user')
+          .setDescription('target user')
+          .setRequired(true)
+      )
+      .addRoleOption(o =>
+        o.setName('new_rank')
+          .setDescription('new rank role')
+          .setRequired(true)
+      )
+      .addStringOption(o =>
+        o.setName('reason')
+          .setDescription('reason')
+          .setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName('rankhistory')
+      .setDescription('show rank history for a user')
+      .addUserOption(o =>
+        o.setName('user')
+          .setDescription('target user')
+          .setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName('promotionlog')
+      .setDescription('show recent promotions'),
+
+    new SlashCommandBuilder()
+      .setName('demotionlog')
+      .setDescription('show recent demotions'),
+
+    new SlashCommandBuilder()
+      .setName('who_promoted')
+      .setDescription('show who last changed a user rank')
+      .addUserOption(o =>
+        o.setName('user')
+          .setDescription('target user')
+          .setRequired(true)
       ),
 
     new SlashCommandBuilder()

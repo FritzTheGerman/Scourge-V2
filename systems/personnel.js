@@ -39,12 +39,16 @@ function verifyEmbed(user, id, roblox, rank) {
   return new EmbedBuilder()
     .setColor(0x8B0000)
     .setTitle('EMPIRE DATABASE ENTRY RECORDED')
-    .setDescription(`Hello **${user}**`)
-    .addFields(
-      { name: 'ID Number Issued', value: `\`${formatId(id)}\`` },
-      { name: 'Roblox Username Logged', value: `\`${roblox}\`` },
-      { name: 'Rank Logged', value: `\`${rank}\`` }
+    .setDescription(
+      `**Hello ${user}**\n\n` +
+      `The following information has been logged in the Empire Database:`
     )
+    .addFields(
+      { name: '1: ID Number Issued', value: `\`${formatId(id)}\`` },
+      { name: '2: Roblox Username Logged', value: `\`${roblox}\`` },
+      { name: '3: Rank Logged', value: `\`${rank}\`` }
+    )
+    .setFooter({ text: 'Empire Verification System' })
     .setTimestamp();
 }
 
@@ -52,26 +56,32 @@ function updateEmbed(user, id, roblox, rank) {
   return new EmbedBuilder()
     .setColor(0x4B0000)
     .setTitle('EMPIRE DATABASE UPDATED')
-    .setDescription(`Hello **${user}**`)
+    .setDescription(
+      `**Hello ${user}**\n\n` +
+      `Your record has been updated in the Empire Database:`
+    )
     .addFields(
       { name: 'ID Number', value: `\`${formatId(id)}\`` },
       { name: 'Roblox Username', value: `\`${roblox}\`` },
-      { name: 'Rank', value: `\`${rank}\`` }
+      { name: 'Rank Logged', value: `\`${rank}\`` }
     )
+    .setFooter({ text: 'Empire Verification System' })
     .setTimestamp();
 }
 
 function profileEmbed(row) {
   return new EmbedBuilder()
     .setColor(0x700000)
-    .setTitle('PERSONNEL RECORD')
+    .setTitle('EMPIRE PERSONNEL RECORD')
     .addFields(
-      { name: 'ID', value: `\`${formatId(row[0])}\`` },
-      { name: 'Discord', value: `\`${row[1]}\`` },
-      { name: 'Rank', value: `\`${row[3]}\`` },
-      { name: 'Roblox', value: `\`${row[4]}\`` },
-      { name: 'Status', value: `\`${row[6]}\`` }
-    );
+      { name: 'ID Number', value: `\`${formatId(row[0])}\`` },
+      { name: 'Discord Username', value: `\`${row[1]}\`` },
+      { name: 'Rank Logged', value: `\`${row[3]}\`` },
+      { name: 'Roblox Username', value: `\`${row[4]}\`` },
+      { name: 'Enlistment Status', value: `\`${row[6]}\`` }
+    )
+    .setFooter({ text: 'Empire Verification System' })
+    .setTimestamp();
 }
 
 /* ---------------- BUTTON ---------------- */
@@ -135,7 +145,7 @@ const commands = [
 
 async function handle(interaction) {
 
-  /* -------- VERIFY -------- */
+  /* VERIFY */
   if (interaction.commandName === 'verify') {
 
     const roblox = interaction.options.getString('roblox_username');
@@ -169,7 +179,7 @@ async function handle(interaction) {
     return true;
   }
 
-  /* -------- UPDATE -------- */
+  /* UPDATE */
   if (interaction.commandName === 'update') {
 
     const roblox = interaction.options.getString('roblox_username');
@@ -204,7 +214,7 @@ async function handle(interaction) {
     return true;
   }
 
-  /* -------- PROFILE -------- */
+  /* PROFILE */
   if (interaction.commandName === 'profile') {
 
     const user = interaction.options.getUser('user');
@@ -223,7 +233,7 @@ async function handle(interaction) {
     return true;
   }
 
-  /* -------- BUTTON -------- */
+  /* BUTTON */
   if (interaction.isButton()) {
     if (interaction.customId === 'update_modal_open') {
       await interaction.showModal(updateModal());
@@ -231,7 +241,7 @@ async function handle(interaction) {
     }
   }
 
-  /* -------- MODAL -------- */
+  /* MODAL */
   if (interaction.isModalSubmit()) {
 
     if (interaction.customId === 'update_modal') {

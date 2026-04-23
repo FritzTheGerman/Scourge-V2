@@ -32,7 +32,7 @@ const sheets = new google.sheets({
   }),
 });
 
-const PERSONNEL_RANGE = 'A:F';
+const PERSONNEL_RANGE = 'A:G';
 
 /* ----------------------------- HELPERS ----------------------------- */
 
@@ -63,7 +63,7 @@ async function ensureHeader() {
   if (rows.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: 'A1:F1',
+      range: 'A1:G1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [[
@@ -72,7 +72,8 @@ async function ensureHeader() {
           'Discord ID',
           'Discord Role',
           'Roblox Username',
-          'Last Updated'
+          'Last Updated',
+          'Enlistment Status'
         ]]
       }
     });
@@ -82,7 +83,7 @@ async function ensureHeader() {
 function findUserRow(rows, discordId) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][2] === discordId) {
-      return i + 1; // sheet row number
+      return i + 1;
     }
   }
   return null;
@@ -114,7 +115,7 @@ async function addRow(data) {
 async function updateRow(rowNumber, data) {
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `A${rowNumber}:F${rowNumber}`,
+    range: `A${rowNumber}:G${rowNumber}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [data],
@@ -122,7 +123,7 @@ async function updateRow(rowNumber, data) {
   });
 }
 
-function buildVerifyEmbed(discordName, idNumber, robloxUsername, role) {
+function buildVerifyEmbed(discordName, idNumber, robloxUsername, role, status) {
   return new EmbedBuilder()
     .setColor(0x8B0000)
     .setTitle('EMPIRE DATABASE ENTRY RECORDED')
@@ -147,6 +148,11 @@ function buildVerifyEmbed(discordName, idNumber, robloxUsername, role) {
         inline: false
       },
       {
+        name: 'Enlistment Status',
+        value: `\`${status}\``,
+        inline: false
+      },
+      {
         name: 'Status',
         value: '`Verified`',
         inline: false
@@ -158,7 +164,7 @@ function buildVerifyEmbed(discordName, idNumber, robloxUsername, role) {
     .setTimestamp();
 }
 
-function buildUpdateEmbed(discordName, idNumber, robloxUsername, role) {
+function buildUpdateEmbed(discordName, idNumber, robloxUsername, role, status) {
   return new EmbedBuilder()
     .setColor(0x4B0000)
     .setTitle('EMPIRE DATABASE ENTRY UPDATED')
@@ -180,6 +186,11 @@ function buildUpdateEmbed(discordName, idNumber, robloxUsername, role) {
       {
         name: 'Rank Logged',
         value: `\`${role}\``,
+        inline: false
+      },
+      {
+        name: 'Enlistment Status',
+        value: `\`${status}\``,
         inline: false
       },
       {
@@ -205,6 +216,7 @@ function buildProfileEmbed(row) {
       { name: 'Rank Logged', value: `\`${row[3] || 'Unknown'}\``, inline: false },
       { name: 'Roblox Username', value: `\`${row[4] || 'Unknown'}\``, inline: false },
       { name: 'Last Updated', value: `\`${row[5] || 'Unknown'}\``, inline: false },
+      { name: 'Enlistment Status', value: `\`${row[6] || 'Active'}\``, inline: false },
     )
     .setFooter({ text: 'Empire Verification System • Personnel Lookup' })
     .setTimestamp();
@@ -258,8 +270,6 @@ client.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
       const command = interaction.commandName;
 
-      /* -------------------- WORKING COMMANDS -------------------- */
-
       if (command === 'verify') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
         const role = getRank(member);
@@ -275,6 +285,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         const idNumber = getNextId(rows);
+        const enlistmentStatus = 'Active';
 
         await addRow([
           idNumber,
@@ -282,10 +293,17 @@ client.on('interactionCreate', async interaction => {
           interaction.user.id,
           role,
           robloxUsername,
-          new Date().toISOString()
+          new Date().toISOString(),
+          enlistmentStatus
         ]);
 
-        const embed = buildVerifyEmbed(interaction.user.tag, idNumber, robloxUsername, role);
+        const embed = buildVerifyEmbed(
+          interaction.user.tag,
+          idNumber,
+          robloxUsername,
+          role,
+          enlistmentStatus
+        );
 
         await interaction.reply({
           embeds: [embed],
@@ -308,7 +326,9 @@ client.on('interactionCreate', async interaction => {
         }
 
         const robloxUsername = interaction.options.getString('roblox_username');
-        const existingId = rows[existingRowNumber - 1][0];
+        const existingRow = rows[existingRowNumber - 1];
+        const existingId = existingRow[0];
+        const currentStatus = existingRow[6] || 'Active';
 
         await updateRow(existingRowNumber, [
           existingId,
@@ -316,10 +336,17 @@ client.on('interactionCreate', async interaction => {
           interaction.user.id,
           role,
           robloxUsername,
-          new Date().toISOString()
+          new Date().toISOString(),
+          currentStatus
         ]);
 
-        const embed = buildUpdateEmbed(interaction.user.tag, existingId, robloxUsername, role);
+        const embed = buildUpdateEmbed(
+          interaction.user.tag,
+          existingId,
+          robloxUsername,
+          role,
+          currentStatus
+        );
 
         await interaction.reply({
           embeds: [embed],
@@ -347,6 +374,38 @@ client.on('interactionCreate', async interaction => {
         return;
       }
 
+      if (command === 'setstatus') {
+        const targetUser = interaction.options.getUser('user');
+        const newStatus = interaction.options.getString('status');
+
+        const rows = await getAllRows();
+        const rowNumber = findUserRow(rows, targetUser.id);
+
+        if (!rowNumber) {
+          await interaction.reply({
+            content: 'That user is not in the database.'
+          });
+          return;
+        }
+
+        const row = rows[rowNumber - 1];
+
+        await updateRow(rowNumber, [
+          row[0] || '',
+          row[1] || '',
+          row[2] || '',
+          row[3] || '',
+          row[4] || '',
+          new Date().toISOString(),
+          newStatus
+        ]);
+
+        await interaction.reply({
+          content: `${targetUser.tag}'s enlistment status has been set to **${newStatus}**.`
+        });
+        return;
+      }
+
       if (command === 'ping') {
         await interaction.reply({ content: 'Pong. Bot is online.' });
         return;
@@ -359,6 +418,7 @@ client.on('interactionCreate', async interaction => {
             '`/verify roblox_username:<name>` - first-time verification\n' +
             '`/update roblox_username:<name>` - update your existing record\n' +
             '`/profile user:@member` - show a user database record\n' +
+            '`/setstatus user:@member status:<Active/Inactive/LOA/Discharged>` - change enlistment status\n' +
             '`/ping` - bot status\n\n' +
             'Other commands are registered and will be wired next.'
         });
@@ -391,6 +451,26 @@ client.on('interactionCreate', async interaction => {
 
         await interaction.reply({
           content: text || 'No rank data found.'
+        });
+        return;
+      }
+
+      if (command === 'statusstats') {
+        const rows = await getAllRows();
+        const counts = {};
+
+        for (const row of rows.slice(1)) {
+          const status = row[6] || 'Active';
+          counts[status] = (counts[status] || 0) + 1;
+        }
+
+        const text = Object.entries(counts)
+          .sort((a, b) => b[1] - a[1])
+          .map(([status, count]) => `**${status}:** ${count}`)
+          .join('\n');
+
+        await interaction.reply({
+          content: text || 'No status data found.'
         });
         return;
       }
@@ -429,10 +509,7 @@ client.on('interactionCreate', async interaction => {
         return;
       }
 
-      /* -------------------- PLACEHOLDER COMMANDS -------------------- */
-
       if (command === 'status') return replyNotBuilt(interaction, '/status');
-      if (command === 'setstatus') return replyNotBuilt(interaction, '/setstatus');
       if (command === 'roster') return replyNotBuilt(interaction, '/roster');
       if (command === 'rostercounts') return replyNotBuilt(interaction, '/rostercounts');
       if (command === 'discharge') return replyNotBuilt(interaction, '/discharge');
@@ -474,7 +551,6 @@ client.on('interactionCreate', async interaction => {
       if (command === 'audit') return replyNotBuilt(interaction, '/audit');
       if (command === 'staffstats') return replyNotBuilt(interaction, '/staffstats');
       if (command === 'hoststats') return replyNotBuilt(interaction, '/hoststats');
-      if (command === 'statusstats') return replyNotBuilt(interaction, '/statusstats');
       if (command === 'syncroles') return replyNotBuilt(interaction, '/syncroles');
       if (command === 'syncall') return replyNotBuilt(interaction, '/syncall');
       if (command === 'backup') return replyNotBuilt(interaction, '/backup');
@@ -483,16 +559,12 @@ client.on('interactionCreate', async interaction => {
       if (command === 'permissions') return replyNotBuilt(interaction, '/permissions');
     }
 
-    /* ---------------------------- BUTTONS ---------------------------- */
-
     if (interaction.isButton()) {
       if (interaction.customId === 'open_update_modal') {
         await interaction.showModal(buildUpdateModal());
         return;
       }
     }
-
-    /* ----------------------------- MODALS ---------------------------- */
 
     if (interaction.isModalSubmit()) {
       if (interaction.customId === 'update_modal') {
@@ -509,7 +581,9 @@ client.on('interactionCreate', async interaction => {
           return;
         }
 
-        const existingId = rows[existingRowNumber - 1][0];
+        const existingRow = rows[existingRowNumber - 1];
+        const existingId = existingRow[0];
+        const currentStatus = existingRow[6] || 'Active';
 
         await updateRow(existingRowNumber, [
           existingId,
@@ -517,10 +591,17 @@ client.on('interactionCreate', async interaction => {
           interaction.user.id,
           role,
           robloxUsername,
-          new Date().toISOString()
+          new Date().toISOString(),
+          currentStatus
         ]);
 
-        const embed = buildUpdateEmbed(interaction.user.tag, existingId, robloxUsername, role);
+        const embed = buildUpdateEmbed(
+          interaction.user.tag,
+          existingId,
+          robloxUsername,
+          role,
+          currentStatus
+        );
 
         await interaction.reply({
           embeds: [embed],
@@ -576,15 +657,6 @@ async function start() {
       ),
 
     new SlashCommandBuilder()
-      .setName('status')
-      .setDescription('show enlistment status for a user')
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('user to check')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
       .setName('setstatus')
       .setDescription('change enlistment status')
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
@@ -603,6 +675,15 @@ async function start() {
             { name: 'LOA', value: 'LOA' },
             { name: 'Discharged', value: 'Discharged' }
           )
+      ),
+
+    new SlashCommandBuilder()
+      .setName('status')
+      .setDescription('show enlistment status for a user')
+      .addUserOption(o =>
+        o.setName('user')
+          .setDescription('user to check')
+          .setRequired(true)
       ),
 
     new SlashCommandBuilder()

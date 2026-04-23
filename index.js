@@ -39,6 +39,10 @@ function getRank(member) {
   return roles.first()?.name || 'No Rank';
 }
 
+function formatIdNumber(id) {
+  return String(id).padStart(4, '0');
+}
+
 async function getAllRows() {
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
@@ -115,25 +119,73 @@ async function updateRow(rowNumber, data) {
 
 function buildVerifyEmbed(discordName, idNumber, robloxUsername, role) {
   return new EmbedBuilder()
-    .setTitle(`Hello ${discordName}`)
+    .setColor(0x8B0000)
+    .setTitle('EMPIRE DATABASE ENTRY RECORDED')
     .setDescription(
-      `**The following information has been logged in the empire's database:**\n\n` +
-      `**1: ID Number Issued:** ${idNumber}\n` +
-      `**2: Roblox Username Logged:** ${robloxUsername}\n` +
-      `**3: Rank Logged:** ${role}`
+      `Hello **${discordName}**\n\n` +
+      `The following information has been successfully logged in the Empire Database.`
     )
+    .addFields(
+      {
+        name: 'ID Number Issued',
+        value: `\`${formatIdNumber(idNumber)}\``,
+        inline: false
+      },
+      {
+        name: 'Roblox Username Logged',
+        value: `\`${robloxUsername}\``,
+        inline: false
+      },
+      {
+        name: 'Rank Logged',
+        value: `\`${role}\``,
+        inline: false
+      },
+      {
+        name: 'Status',
+        value: '`Verified`',
+        inline: false
+      }
+    )
+    .setFooter({
+      text: 'Empire Verification System • Database Entry Confirmed'
+    })
     .setTimestamp();
 }
 
 function buildUpdateEmbed(discordName, idNumber, robloxUsername, role) {
   return new EmbedBuilder()
-    .setTitle(`Hello ${discordName}`)
+    .setColor(0x4B0000)
+    .setTitle('EMPIRE DATABASE ENTRY UPDATED')
     .setDescription(
-      `**Your database entry has been updated:**\n\n` +
-      `**1: ID Number Issued:** ${idNumber}\n` +
-      `**2: Roblox Username Logged:** ${robloxUsername}\n` +
-      `**3: Rank Logged:** ${role}`
+      `Hello **${discordName}**\n\n` +
+      `Your personnel record has been successfully updated in the Empire Database.`
     )
+    .addFields(
+      {
+        name: 'ID Number Retained',
+        value: `\`${formatIdNumber(idNumber)}\``,
+        inline: false
+      },
+      {
+        name: 'Roblox Username Logged',
+        value: `\`${robloxUsername}\``,
+        inline: false
+      },
+      {
+        name: 'Rank Logged',
+        value: `\`${role}\``,
+        inline: false
+      },
+      {
+        name: 'Status',
+        value: '`Updated`',
+        inline: false
+      }
+    )
+    .setFooter({
+      text: 'Empire Verification System • Record Successfully Updated'
+    })
     .setTimestamp();
 }
 
@@ -141,22 +193,23 @@ function buildUpdateButton() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('open_update_modal')
-      .setLabel('Update')
-      .setStyle(ButtonStyle.Primary)
+      .setLabel('Update Record')
+      .setStyle(ButtonStyle.Danger)
   );
 }
 
 function buildUpdateModal() {
   const modal = new ModalBuilder()
     .setCustomId('update_modal')
-    .setTitle('Update Verification');
+    .setTitle('Update Verification Record');
 
   const robloxInput = new TextInputBuilder()
     .setCustomId('roblox_username')
     .setLabel('Roblox Username')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
-    .setMaxLength(32);
+    .setMaxLength(32)
+    .setPlaceholder('Enter your Roblox username');
 
   const row = new ActionRowBuilder().addComponents(robloxInput);
   modal.addComponents(row);
@@ -182,7 +235,7 @@ client.on('interactionCreate', async interaction => {
 
         if (existingRowNumber) {
           await interaction.reply({
-            content: 'You are already verified. Use /update or press the Update button on your verification message.'
+            content: 'You are already verified. Use /update or press the Update Record button on your verification message.'
           });
           return;
         }

@@ -1,6 +1,19 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle
+} = require('discord.js');
 const { google } = require('googleapis');
 
 const client = new Client({
@@ -60,7 +73,7 @@ async function ensureHeader() {
 function findUserRow(rows, discordId) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][2] === discordId) {
-      return i + 1; // actual sheet row number
+      return i + 1;
     }
   }
   return null;
@@ -100,70 +113,184 @@ async function updateRow(rowNumber, data) {
   });
 }
 
+function buildVerifyEmbed(discordName, idNumber, robloxUsername, role) {
+  return new EmbedBuilder()
+    .setTitle(`Hello ${discordName}`)
+    .setDescription(
+      `**The following information has been logged in the empire's database:**\n\n` +
+      `**1: ID Number Issued:** ${idNumber}\n` +
+      `**2: Roblox Username Logged:** ${robloxUsername}\n` +
+      `**3: Rank Logged:** ${role}`
+    )
+    .setTimestamp();
+}
+
+function buildUpdateEmbed(discordName, idNumber, robloxUsername, role) {
+  return new EmbedBuilder()
+    .setTitle(`Hello ${discordName}`)
+    .setDescription(
+      `**Your database entry has been updated:**\n\n` +
+      `**1: ID Number Issued:** ${idNumber}\n` +
+      `**2: Roblox Username Logged:** ${robloxUsername}\n` +
+      `**3: Rank Logged:** ${role}`
+    )
+    .setTimestamp();
+}
+
+function buildUpdateButton() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('open_update_modal')
+      .setLabel('Update')
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
+function buildUpdateModal() {
+  const modal = new ModalBuilder()
+    .setCustomId('update_modal')
+    .setTitle('Update Verification');
+
+  const robloxInput = new TextInputBuilder()
+    .setCustomId('roblox_username')
+    .setLabel('Roblox Username')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setMaxLength(32);
+
+  const row = new ActionRowBuilder().addComponents(robloxInput);
+  modal.addComponents(row);
+
+  return modal;
+}
+
 client.once('ready', async () => {
   await ensureHeader();
   console.log('BOT ONLINE');
 });
 
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+  try {
+    if (interaction.isChatInputCommand()) {
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      const role = getRank(member);
+      const rows = await getAllRows();
+      const existingRowNumber = findUserRow(rows, interaction.user.id);
 
-  const member = await interaction.guild.members.fetch(interaction.user.id);
-  const role = getRank(member);
-  const robloxUsername = interaction.options.getString('roblox_username');
-  const rows = await getAllRows();
-  const existingRowNumber = findUserRow(rows, interaction.user.id);
+      if (interaction.commandName === 'verify') {
+        const robloxUsername = interaction.options.getString('roblox_username');
 
-  if (interaction.commandName === 'verify') {
-    if (existingRowNumber) {
-      await interaction.reply({
-        content: 'You are already verified. Use /update instead.',
-        ephemeral: true
-      });
-      return;
+        if (existingRowNumber) {
+          await interaction.reply({
+            content: 'You are already verified. Use /update or press the Update button on your verification message.'
+          });
+          return;
+        }
+
+        const idNumber = getNextId(rows);
+
+        await addRow([
+          idNumber,
+          interaction.user.tag,
+          interaction.user.id,
+          role,
+          robloxUsername,
+          new Date().toISOString()
+        ]);
+
+        const embed = buildVerifyEmbed(interaction.user.tag, idNumber, robloxUsername, role);
+
+        await interaction.reply({
+          embeds: [embed],
+          components: [buildUpdateButton()]
+        });
+        return;
+      }
+
+      if (interaction.commandName === 'update') {
+        if (!existingRowNumber) {
+          await interaction.reply({
+            content: 'You are not verified yet. Use /verify first.'
+          });
+          return;
+        }
+
+        const robloxUsername = interaction.options.getString('roblox_username');
+        const existingId = rows[existingRowNumber - 1][0];
+
+        await updateRow(existingRowNumber, [
+          existingId,
+          interaction.user.tag,
+          interaction.user.id,
+          role,
+          robloxUsername,
+          new Date().toISOString()
+        ]);
+
+        const embed = buildUpdateEmbed(interaction.user.tag, existingId, robloxUsername, role);
+
+        await interaction.reply({
+          embeds: [embed],
+          components: [buildUpdateButton()]
+        });
+        return;
+      }
     }
 
-    const idNumber = getNextId(rows);
-
-    await addRow([
-      idNumber,
-      interaction.user.tag,
-      interaction.user.id,
-      role,
-      robloxUsername,
-      new Date().toISOString()
-    ]);
-
-    await interaction.reply({
-      content: `Verified and saved. Your ID number is ${idNumber}. Detected role: ${role}`,
-      ephemeral: true
-    });
-  }
-
-  if (interaction.commandName === 'update') {
-    if (!existingRowNumber) {
-      await interaction.reply({
-        content: 'You are not verified yet. Use /verify first.',
-        ephemeral: true
-      });
-      return;
+    if (interaction.isButton()) {
+      if (interaction.customId === 'open_update_modal') {
+        await interaction.showModal(buildUpdateModal());
+        return;
+      }
     }
 
-    const existingId = rows[existingRowNumber - 1][0];
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId === 'update_modal') {
+        const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        const role = getRank(member);
+        const rows = await getAllRows();
+        const existingRowNumber = findUserRow(rows, interaction.user.id);
 
-    await updateRow(existingRowNumber, [
-      existingId,
-      interaction.user.tag,
-      interaction.user.id,
-      role,
-      robloxUsername,
-      new Date().toISOString()
-    ]);
+        if (!existingRowNumber) {
+          await interaction.reply({
+            content: 'You are not verified yet. Use /verify first.'
+          });
+          return;
+        }
 
-    await interaction.reply({
-      content: `Your information was updated. Detected role: ${role}`,
-      ephemeral: true
-    });
+        const existingId = rows[existingRowNumber - 1][0];
+
+        await updateRow(existingRowNumber, [
+          existingId,
+          interaction.user.tag,
+          interaction.user.id,
+          role,
+          robloxUsername,
+          new Date().toISOString()
+        ]);
+
+        const embed = buildUpdateEmbed(interaction.user.tag, existingId, robloxUsername, role);
+
+        await interaction.reply({
+          embeds: [embed],
+          components: [buildUpdateButton()]
+        });
+        return;
+      }
+    }
+  } catch (error) {
+    console.error(error);
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({
+        content: 'Something went wrong while processing that action.'
+      }).catch(() => {});
+    } else {
+      await interaction.reply({
+        content: 'Something went wrong while processing that action.'
+      }).catch(() => {});
+    }
   }
 });
 

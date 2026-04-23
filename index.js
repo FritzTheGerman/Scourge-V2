@@ -34,7 +34,7 @@ const sheets = new google.sheets({
 
 const PERSONNEL_RANGE = 'A:G';
 const PUNISHMENTS_RANGE = 'Punishments!A:H';
-const RANK_HISTORY_RANGE = 'Rank History!A:J';
+const EVENTS_RANGE = 'Events!A:K';
 
 /* ----------------------------- HELPERS ----------------------------- */
 
@@ -68,16 +68,16 @@ async function getPunishmentRows() {
   return response.data.values || [];
 }
 
-async function getRankHistoryRows() {
+async function getEventRows() {
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: RANK_HISTORY_RANGE,
+    range: EVENTS_RANGE,
   });
 
   return response.data.values || [];
 }
 
-async function ensureHeader() {
+async function ensurePersonnelHeader() {
   const rows = await getAllRows();
 
   if (rows.length === 0) {
@@ -124,26 +124,27 @@ async function ensurePunishmentsHeader() {
   }
 }
 
-async function ensureRankHistoryHeader() {
-  const rows = await getRankHistoryRows();
+async function ensureEventsHeader() {
+  const rows = await getEventRows();
 
   if (rows.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: 'Rank History!A1:J1',
+      range: 'Events!A1:K1',
       valueInputOption: 'RAW',
       requestBody: {
         values: [[
-          'Case ID',
-          'Target Discord Username',
-          'Target Discord ID',
-          'Action Type',
-          'Old Rank',
-          'New Rank',
-          'Reason',
-          'Moderator Username',
-          'Moderator ID',
-          'Timestamp'
+          'Event ID',
+          'Event Name',
+          'Host Username',
+          'Host Discord ID',
+          'Event Time',
+          'Status',
+          'Attendance Count',
+          'Attendee IDs',
+          'Created By',
+          'Created At',
+          'Closed At'
         ]]
       }
     });
@@ -167,8 +168,7 @@ function getNextId(rows) {
     .map(row => Number(row[0]))
     .filter(id => !Number.isNaN(id));
 
-  if (ids.length === 0) return 1;
-  return Math.max(...ids) + 1;
+  return ids.length ? Math.max(...ids) + 1 : 1;
 }
 
 function getNextCaseId(rows) {
@@ -179,29 +179,59 @@ function getNextCaseId(rows) {
     .map(row => Number(row[0]))
     .filter(id => !Number.isNaN(id));
 
-  if (ids.length === 0) return 1;
-  return Math.max(...ids) + 1;
+  return ids.length ? Math.max(...ids) + 1 : 1;
 }
 
-async function addRow(data) {
+function getNextEventId(rows) {
+  if (rows.length <= 1) return 1;
+
+  const ids = rows
+    .slice(1)
+    .map(row => Number(row[0]))
+    .filter(id => !Number.isNaN(id));
+
+  return ids.length ? Math.max(...ids) + 1 : 1;
+}
+
+function findEventRowByName(rows, eventName) {
+  const lowered = eventName.toLowerCase();
+
+  for (let i = 1; i < rows.length; i++) {
+    if ((rows[i][1] || '').toLowerCase() === lowered) {
+      return i + 1;
+    }
+  }
+
+  return null;
+}
+
+function parseAttendeeIds(cellValue) {
+  if (!cellValue) return [];
+  return cellValue
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+function stringifyAttendeeIds(ids) {
+  return ids.join(', ');
+}
+
+async function addPersonnelRow(data) {
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
     range: PERSONNEL_RANGE,
     valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: [data],
-    },
+    requestBody: { values: [data] },
   });
 }
 
-async function updateRow(rowNumber, data) {
+async function updatePersonnelRow(rowNumber, data) {
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
     range: `A${rowNumber}:G${rowNumber}`,
     valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: [data],
-    },
+    requestBody: { values: [data] },
   });
 }
 
@@ -210,40 +240,33 @@ async function addPunishmentRow(data) {
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
     range: PUNISHMENTS_RANGE,
     valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: [data],
-    },
+    requestBody: { values: [data] },
   });
 }
 
-async function addRankHistoryRow(data) {
+async function addEventRow(data) {
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: RANK_HISTORY_RANGE,
+    range: EVENTS_RANGE,
     valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: [data],
-    },
+    requestBody: { values: [data] },
   });
 }
 
-async function tryApplyRoleChange(guild, userId, oldRankName, newRole) {
-  try {
-    const member = await guild.members.fetch(userId);
+async function updateEventRow(rowNumber, data) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `Events!A${rowNumber}:K${rowNumber}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [data] },
+  });
+}
 
-    if (oldRankName && oldRankName !== 'No Rank') {
-      const oldRole = member.roles.cache.find(role => role.name === oldRankName);
-      if (oldRole) {
-        await member.roles.remove(oldRole);
-      }
-    }
-
-    await member.roles.add(newRole);
-    return true;
-  } catch (error) {
-    console.error('Role change failed:', error);
-    return false;
-  }
+async function clearEventRow(rowNumber) {
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `Events!A${rowNumber}:K${rowNumber}`,
+  });
 }
 
 /* ----------------------------- EMBEDS ----------------------------- */
@@ -253,8 +276,7 @@ function buildVerifyEmbed(discordName, idNumber, robloxUsername, role, status) {
     .setColor(0x8B0000)
     .setTitle('EMPIRE DATABASE ENTRY RECORDED')
     .setDescription(
-      `Hello **${discordName}**\n\n` +
-      `The following information has been successfully logged in the Empire Database.`
+      `Hello **${discordName}**\n\nThe following information has been successfully logged in the Empire Database.`
     )
     .addFields(
       { name: 'ID Number Issued', value: `\`${formatIdNumber(idNumber)}\``, inline: false },
@@ -272,8 +294,7 @@ function buildUpdateEmbed(discordName, idNumber, robloxUsername, role, status) {
     .setColor(0x4B0000)
     .setTitle('EMPIRE DATABASE ENTRY UPDATED')
     .setDescription(
-      `Hello **${discordName}**\n\n` +
-      `Your personnel record has been successfully updated in the Empire Database.`
+      `Hello **${discordName}**\n\nYour personnel record has been successfully updated in the Empire Database.`
     )
     .addFields(
       { name: 'ID Number Retained', value: `\`${formatIdNumber(idNumber)}\``, inline: false },
@@ -297,7 +318,7 @@ function buildProfileEmbed(row) {
       { name: 'Rank Logged', value: `\`${row[3] || 'Unknown'}\``, inline: false },
       { name: 'Roblox Username', value: `\`${row[4] || 'Unknown'}\``, inline: false },
       { name: 'Last Updated', value: `\`${row[5] || 'Unknown'}\``, inline: false },
-      { name: 'Enlistment Status', value: `\`${row[6] || 'Active'}\``, inline: false },
+      { name: 'Enlistment Status', value: `\`${row[6] || 'Active'}\``, inline: false }
     )
     .setFooter({ text: 'Empire Verification System • Personnel Lookup' })
     .setTimestamp();
@@ -312,7 +333,7 @@ function buildStatusEmbed(targetUser, row) {
       { name: 'ID Number', value: `\`${formatIdNumber(row[0] || '0')}\``, inline: false },
       { name: 'Rank Logged', value: `\`${row[3] || 'Unknown'}\``, inline: false },
       { name: 'Enlistment Status', value: `\`${row[6] || 'Active'}\``, inline: false },
-      { name: 'Last Updated', value: `\`${row[5] || 'Unknown'}\``, inline: false },
+      { name: 'Last Updated', value: `\`${row[5] || 'Unknown'}\``, inline: false }
     )
     .setFooter({ text: 'Empire Verification System • Status Lookup' })
     .setTimestamp();
@@ -331,10 +352,7 @@ function buildRosterEmbed(rows, page = 1, pageSize = 10) {
         const roblox = row[4] || 'Unknown';
         const status = row[6] || 'Active';
 
-        return `**${id}** • ${discordName}\n` +
-               `Rank: \`${rank}\`\n` +
-               `Roblox: \`${roblox}\`\n` +
-               `Status: \`${status}\``;
+        return `**${id}** • ${discordName}\nRank: \`${rank}\`\nRoblox: \`${roblox}\`\nStatus: \`${status}\``;
       }).join('\n\n')
     : 'No personnel records found.';
 
@@ -400,9 +418,7 @@ function buildWarnEmbed(targetUser, caseId, reason, moderatorTag) {
 }
 
 function buildPunishmentsEmbed(targetUser, rows) {
-  const userRows = rows
-    .slice(1)
-    .filter(row => row[2] === targetUser.id);
+  const userRows = rows.slice(1).filter(row => row[2] === targetUser.id);
 
   const description = userRows.length
     ? userRows.slice(-10).reverse().map(row => {
@@ -412,10 +428,7 @@ function buildPunishmentsEmbed(targetUser, rows) {
         const moderator = row[5] || 'Unknown';
         const timestamp = row[7] || 'Unknown';
 
-        return `**Case ${caseId}** • \`${actionType}\`\n` +
-               `Reason: \`${reason}\`\n` +
-               `Moderator: \`${moderator}\`\n` +
-               `Time: \`${timestamp}\``;
+        return `**Case ${caseId}** • \`${actionType}\`\nReason: \`${reason}\`\nModerator: \`${moderator}\`\nTime: \`${timestamp}\``;
       }).join('\n\n')
     : 'No punishments found for this user.';
 
@@ -427,105 +440,107 @@ function buildPunishmentsEmbed(targetUser, rows) {
     .setTimestamp();
 }
 
-function buildRankChangeEmbed(actionType, targetUser, caseId, oldRank, newRank, reason, moderatorTag, moderatorId, roleApplied) {
+function buildEventCreateEmbed(eventId, eventName, hostUser, eventTime, createdBy) {
   return new EmbedBuilder()
-    .setColor(0x990000)
-    .setTitle('RANK ACTION LOGGED')
-    .setDescription(`A rank action has been recorded for **${targetUser.tag}**.`)
+    .setColor(0x8C1D00)
+    .setTitle('EVENT RECORD CREATED')
     .addFields(
-      { name: 'Case ID', value: `\`${formatIdNumber(caseId)}\``, inline: false },
-      { name: 'Action Type', value: `\`${actionType}\``, inline: false },
-      { name: 'Old Rank', value: `\`${oldRank}\``, inline: false },
-      { name: 'New Rank', value: `\`${newRank}\``, inline: false },
-      { name: 'Reason', value: `\`${reason}\``, inline: false },
-      { name: 'Logged By', value: `\`${moderatorTag}\``, inline: false },
-      { name: 'Moderator ID', value: `\`${moderatorId}\``, inline: false },
-      { name: 'Discord Role Applied', value: roleApplied ? '`Yes`' : '`No`', inline: false },
+      { name: 'Event ID', value: `\`${formatIdNumber(eventId)}\``, inline: false },
+      { name: 'Event Name', value: `\`${eventName}\``, inline: false },
+      { name: 'Host', value: `\`${hostUser.tag}\``, inline: false },
+      { name: 'Event Time', value: `\`${eventTime}\``, inline: false },
+      { name: 'Status', value: '`Scheduled`', inline: false },
+      { name: 'Created By', value: `\`${createdBy}\``, inline: false }
     )
-    .setFooter({ text: 'Empire Promotion System • Rank Action Logged' })
+    .setFooter({ text: 'Empire Event System • Event Created' })
     .setTimestamp();
 }
 
-function buildRankHistoryEmbed(targetUser, rows) {
-  const userRows = rows
-    .slice(1)
-    .filter(row => row[2] === targetUser.id);
-
-  const description = userRows.length
-    ? userRows.slice(-10).reverse().map(row => {
-        const caseId = formatIdNumber(row[0] || '0');
-        const actionType = row[3] || 'Unknown';
-        const oldRank = row[4] || 'Unknown';
-        const newRank = row[5] || 'Unknown';
-        const reason = row[6] || 'No reason provided';
-        const moderator = row[7] || 'Unknown';
-        const moderatorId = row[8] || 'Unknown';
-        const timestamp = row[9] || 'Unknown';
-
-        return `**Case ${caseId}** • \`${actionType}\`\n` +
-               `Old Rank: \`${oldRank}\`\n` +
-               `New Rank: \`${newRank}\`\n` +
-               `Reason: \`${reason}\`\n` +
-               `By: \`${moderator}\`\n` +
-               `Moderator ID: \`${moderatorId}\`\n` +
-               `Time: \`${timestamp}\``;
-      }).join('\n\n')
-    : 'No rank history found for this user.';
-
+function buildEventSimpleEmbed(title, description) {
   return new EmbedBuilder()
-    .setColor(0x7F0000)
-    .setTitle('RANK HISTORY')
-    .setDescription(`Rank history for **${targetUser.tag}**\n\n${description}`)
-    .setFooter({ text: 'Empire Promotion System • History Lookup' })
-    .setTimestamp();
-}
-
-function buildRecentRankLogEmbed(title, rows, filterType) {
-  const data = rows
-    .slice(1)
-    .filter(row => row[3] === filterType)
-    .slice(-10)
-    .reverse();
-
-  const description = data.length
-    ? data.map(row => {
-        const caseId = formatIdNumber(row[0] || '0');
-        const target = row[1] || 'Unknown';
-        const oldRank = row[4] || 'Unknown';
-        const newRank = row[5] || 'Unknown';
-        const moderator = row[7] || 'Unknown';
-        const moderatorId = row[8] || 'Unknown';
-
-        return `**Case ${caseId}** • ${target}\n` +
-               `\`${oldRank}\` → \`${newRank}\`\n` +
-               `By: \`${moderator}\`\n` +
-               `Moderator ID: \`${moderatorId}\``;
-      }).join('\n\n')
-    : `No ${filterType.toLowerCase()} records found.`;
-
-  return new EmbedBuilder()
-    .setColor(0x6F0000)
+    .setColor(0x8C1D00)
     .setTitle(title)
     .setDescription(description)
-    .setFooter({ text: 'Empire Promotion System • Recent Activity' })
+    .setFooter({ text: 'Empire Event System' })
     .setTimestamp();
 }
 
-function buildWhoPromotedEmbed(targetUser, row) {
+function buildEventReportEmbed(row) {
+  const attendeeIds = parseAttendeeIds(row[7] || '');
   return new EmbedBuilder()
-    .setColor(0x760000)
-    .setTitle('LAST RANK CHANGE')
-    .setDescription(`Last recorded rank change for **${targetUser.tag}**`)
+    .setColor(0xA13A00)
+    .setTitle('EVENT REPORT')
     .addFields(
-      { name: 'Action Type', value: `\`${row[3] || 'Unknown'}\``, inline: false },
-      { name: 'Old Rank', value: `\`${row[4] || 'Unknown'}\``, inline: false },
-      { name: 'New Rank', value: `\`${row[5] || 'Unknown'}\``, inline: false },
-      { name: 'Reason', value: `\`${row[6] || 'Unknown'}\``, inline: false },
-      { name: 'Logged By', value: `\`${row[7] || 'Unknown'}\``, inline: false },
-      { name: 'Moderator ID', value: `\`${row[8] || 'Unknown'}\``, inline: false },
-      { name: 'Timestamp', value: `\`${row[9] || 'Unknown'}\``, inline: false },
+      { name: 'Event ID', value: `\`${formatIdNumber(row[0] || '0')}\``, inline: false },
+      { name: 'Event Name', value: `\`${row[1] || 'Unknown'}\``, inline: false },
+      { name: 'Host Username', value: `\`${row[2] || 'Unknown'}\``, inline: false },
+      { name: 'Host Discord ID', value: `\`${row[3] || 'Unknown'}\``, inline: false },
+      { name: 'Event Time', value: `\`${row[4] || 'Unknown'}\``, inline: false },
+      { name: 'Status', value: `\`${row[5] || 'Unknown'}\``, inline: false },
+      { name: 'Attendance Count', value: `\`${row[6] || attendeeIds.length}\``, inline: false },
+      { name: 'Created By', value: `\`${row[8] || 'Unknown'}\``, inline: false },
+      { name: 'Created At', value: `\`${row[9] || 'Unknown'}\``, inline: false },
+      { name: 'Closed At', value: `\`${row[10] || 'Not Closed'}\``, inline: false }
     )
-    .setFooter({ text: 'Empire Promotion System • Last Change Lookup' })
+    .setFooter({ text: 'Empire Event System • Event Report' })
+    .setTimestamp();
+}
+
+function buildAttendanceEmbed(eventName, attendeeIds) {
+  const description = attendeeIds.length
+    ? attendeeIds.map((id, index) => `${index + 1}. \`${id}\``).join('\n')
+    : 'No attendees logged.';
+
+  return new EmbedBuilder()
+    .setColor(0x9A2C00)
+    .setTitle('EVENT ATTENDANCE')
+    .setDescription(`Attendance for **${eventName}**\n\n${description}`)
+    .addFields(
+      { name: 'Attendance Count', value: `\`${attendeeIds.length}\``, inline: false }
+    )
+    .setFooter({ text: 'Empire Event System • Attendance Log' })
+    .setTimestamp();
+}
+
+function buildEventHistoryEmbed(targetUser, rows) {
+  const data = rows.slice(1).filter(
+    row => row[3] === targetUser.id || parseAttendeeIds(row[7] || '').includes(targetUser.id)
+  );
+
+  const description = data.length
+    ? data.slice(-10).reverse().map(row => {
+        const asHost = row[3] === targetUser.id;
+        return `**${row[1] || 'Unknown Event'}**\nRole: \`${asHost ? 'Host' : 'Attendee'}\`\nStatus: \`${row[5] || 'Unknown'}\`\nTime: \`${row[4] || 'Unknown'}\``;
+      }).join('\n\n')
+    : 'No event history found for this user.';
+
+  return new EmbedBuilder()
+    .setColor(0x8C1D00)
+    .setTitle('EVENT HISTORY')
+    .setDescription(`Event history for **${targetUser.tag}**\n\n${description}`)
+    .setFooter({ text: 'Empire Event System • History Lookup' })
+    .setTimestamp();
+}
+
+function buildEventLeaderboardEmbed(rows) {
+  const counts = {};
+
+  for (const row of rows.slice(1)) {
+    const host = row[2] || 'Unknown';
+    counts[host] = (counts[host] || 0) + 1;
+  }
+
+  const description = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([host, count], index) => `${index + 1}. **${host}** — \`${count}\` event(s)`)
+    .join('\n') || 'No event data found.';
+
+  return new EmbedBuilder()
+    .setColor(0x8C1D00)
+    .setTitle('EVENT HOST LEADERBOARD')
+    .setDescription(description)
+    .setFooter({ text: 'Empire Event System • Leaderboard' })
     .setTimestamp();
 }
 
@@ -551,9 +566,7 @@ function buildUpdateModal() {
     .setMaxLength(32)
     .setPlaceholder('Enter your Roblox username');
 
-  const row = new ActionRowBuilder().addComponents(robloxInput);
-  modal.addComponents(row);
-
+  modal.addComponents(new ActionRowBuilder().addComponents(robloxInput));
   return modal;
 }
 
@@ -566,9 +579,9 @@ async function replyNotBuilt(interaction, commandName) {
 /* ----------------------------- READY ----------------------------- */
 
 client.once('ready', async () => {
-  await ensureHeader();
+  await ensurePersonnelHeader();
   await ensurePunishmentsHeader();
-  await ensureRankHistoryHeader();
+  await ensureEventsHeader();
   console.log('BOT ONLINE');
 });
 
@@ -596,7 +609,7 @@ client.on('interactionCreate', async interaction => {
         const idNumber = getNextId(rows);
         const enlistmentStatus = 'Active';
 
-        await addRow([
+        await addPersonnelRow([
           idNumber,
           interaction.user.tag,
           interaction.user.id,
@@ -606,16 +619,8 @@ client.on('interactionCreate', async interaction => {
           enlistmentStatus
         ]);
 
-        const embed = buildVerifyEmbed(
-          interaction.user.tag,
-          idNumber,
-          robloxUsername,
-          role,
-          enlistmentStatus
-        );
-
         await interaction.reply({
-          embeds: [embed],
+          embeds: [buildVerifyEmbed(interaction.user.tag, idNumber, robloxUsername, role, enlistmentStatus)],
           components: [buildUpdateButton()]
         });
         return;
@@ -623,14 +628,12 @@ client.on('interactionCreate', async interaction => {
 
       if (command === 'update') {
         const member = await interaction.guild.members.fetch(interaction.user.id);
-        const role = getRank(member);
+        let role = getRank(member);
         const rows = await getAllRows();
         const existingRowNumber = findUserRow(rows, interaction.user.id);
 
         if (!existingRowNumber) {
-          await interaction.reply({
-            content: 'You are not verified yet. Use /verify first.'
-          });
+          await interaction.reply({ content: 'You are not verified yet. Use /verify first.' });
           return;
         }
 
@@ -639,7 +642,11 @@ client.on('interactionCreate', async interaction => {
         const existingId = existingRow[0];
         const currentStatus = existingRow[6] || 'Active';
 
-        await updateRow(existingRowNumber, [
+        if (role === 'No Rank' && existingRow[3]) {
+          role = existingRow[3];
+        }
+
+        await updatePersonnelRow(existingRowNumber, [
           existingId,
           interaction.user.tag,
           interaction.user.id,
@@ -649,16 +656,8 @@ client.on('interactionCreate', async interaction => {
           currentStatus
         ]);
 
-        const embed = buildUpdateEmbed(
-          interaction.user.tag,
-          existingId,
-          robloxUsername,
-          role,
-          currentStatus
-        );
-
         await interaction.reply({
-          embeds: [embed],
+          embeds: [buildUpdateEmbed(interaction.user.tag, existingId, robloxUsername, role, currentStatus)],
           components: [buildUpdateButton()]
         });
         return;
@@ -670,15 +669,12 @@ client.on('interactionCreate', async interaction => {
         const rowNumber = findUserRow(rows, targetUser.id);
 
         if (!rowNumber) {
-          await interaction.reply({
-            content: 'That user does not have a record in the database.'
-          });
+          await interaction.reply({ content: 'That user does not have a record in the database.' });
           return;
         }
 
-        const row = rows[rowNumber - 1];
         await interaction.reply({
-          embeds: [buildProfileEmbed(row)]
+          embeds: [buildProfileEmbed(rows[rowNumber - 1])]
         });
         return;
       }
@@ -686,20 +682,17 @@ client.on('interactionCreate', async interaction => {
       if (command === 'setstatus') {
         const targetUser = interaction.options.getUser('user');
         const newStatus = interaction.options.getString('status');
-
         const rows = await getAllRows();
         const rowNumber = findUserRow(rows, targetUser.id);
 
         if (!rowNumber) {
-          await interaction.reply({
-            content: 'That user is not in the database.'
-          });
+          await interaction.reply({ content: 'That user is not in the database.' });
           return;
         }
 
         const row = rows[rowNumber - 1];
 
-        await updateRow(rowNumber, [
+        await updatePersonnelRow(rowNumber, [
           row[0] || '',
           row[1] || '',
           row[2] || '',
@@ -721,32 +714,25 @@ client.on('interactionCreate', async interaction => {
         const rowNumber = findUserRow(rows, targetUser.id);
 
         if (!rowNumber) {
-          await interaction.reply({
-            content: 'That user is not in the database.'
-          });
+          await interaction.reply({ content: 'That user is not in the database.' });
           return;
         }
 
-        const row = rows[rowNumber - 1];
         await interaction.reply({
-          embeds: [buildStatusEmbed(targetUser, row)]
+          embeds: [buildStatusEmbed(targetUser, rows[rowNumber - 1])]
         });
         return;
       }
 
       if (command === 'roster') {
         const rows = await getAllRows();
-        await interaction.reply({
-          embeds: [buildRosterEmbed(rows)]
-        });
+        await interaction.reply({ embeds: [buildRosterEmbed(rows)] });
         return;
       }
 
       if (command === 'rostercounts') {
         const rows = await getAllRows();
-        await interaction.reply({
-          embeds: [buildRosterCountsEmbed(rows)]
-        });
+        await interaction.reply({ embeds: [buildRosterCountsEmbed(rows)] });
         return;
       }
 
@@ -783,114 +769,246 @@ client.on('interactionCreate', async interaction => {
         return;
       }
 
-      if (command === 'promote' || command === 'demote' || command === 'setrank') {
-        const targetUser = interaction.options.getUser('user');
-        const newRankRole = interaction.options.getRole('new_rank');
-        const reason = interaction.options.getString('reason');
-        const rows = await getAllRows();
-        const rowNumber = findUserRow(rows, targetUser.id);
+      if (command === 'event') {
+        const sub = interaction.options.getSubcommand();
+        const eventRows = await getEventRows();
 
-        if (!rowNumber) {
-          await interaction.reply({ content: 'That user is not in the personnel database.' });
-          return;
-        }
+        if (sub === 'create') {
+          const name = interaction.options.getString('name');
+          const time = interaction.options.getString('time');
+          const host = interaction.options.getUser('host');
 
-        const rankRows = await getRankHistoryRows();
-        const caseId = getNextCaseId(rankRows);
+          const existing = findEventRowByName(eventRows, name);
+          if (existing) {
+            await interaction.reply({ content: 'An event with that exact name already exists.' });
+            return;
+          }
 
-        const personnelRow = rows[rowNumber - 1];
-        const oldRank = personnelRow[3] || 'Unknown';
-        const actionType =
-          command === 'promote' ? 'Promote' :
-          command === 'demote' ? 'Demote' : 'Set Rank';
+          const eventId = getNextEventId(eventRows);
 
-        const roleApplied = await tryApplyRoleChange(
-          interaction.guild,
-          targetUser.id,
-          oldRank,
-          newRankRole
-        );
-
-        await updateRow(rowNumber, [
-          personnelRow[0] || '',
-          personnelRow[1] || '',
-          personnelRow[2] || '',
-          newRankRole.name,
-          personnelRow[4] || '',
-          new Date().toISOString(),
-          personnelRow[6] || 'Active'
-        ]);
-
-        await addRankHistoryRow([
-          caseId,
-          targetUser.tag,
-          targetUser.id,
-          actionType,
-          oldRank,
-          newRankRole.name,
-          reason,
-          interaction.user.tag,
-          interaction.user.id,
-          new Date().toISOString()
-        ]);
-
-        await interaction.reply({
-          embeds: [buildRankChangeEmbed(
-            actionType,
-            targetUser,
-            caseId,
-            oldRank,
-            newRankRole.name,
-            reason,
+          await addEventRow([
+            eventId,
+            name,
+            host.tag,
+            host.id,
+            time,
+            'Scheduled',
+            0,
+            '',
             interaction.user.tag,
-            interaction.user.id,
-            roleApplied
-          )]
-        });
-        return;
-      }
+            new Date().toISOString(),
+            ''
+          ]);
 
-      if (command === 'rankhistory') {
-        const targetUser = interaction.options.getUser('user');
-        const rankRows = await getRankHistoryRows();
-
-        await interaction.reply({
-          embeds: [buildRankHistoryEmbed(targetUser, rankRows)]
-        });
-        return;
-      }
-
-      if (command === 'promotionlog') {
-        const rankRows = await getRankHistoryRows();
-        await interaction.reply({
-          embeds: [buildRecentRankLogEmbed('RECENT PROMOTIONS', rankRows, 'Promote')]
-        });
-        return;
-      }
-
-      if (command === 'demotionlog') {
-        const rankRows = await getRankHistoryRows();
-        await interaction.reply({
-          embeds: [buildRecentRankLogEmbed('RECENT DEMOTIONS', rankRows, 'Demote')]
-        });
-        return;
-      }
-
-      if (command === 'who_promoted') {
-        const targetUser = interaction.options.getUser('user');
-        const rankRows = await getRankHistoryRows();
-        const userRows = rankRows.slice(1).filter(row => row[2] === targetUser.id);
-
-        if (!userRows.length) {
-          await interaction.reply({ content: 'No rank history found for that user.' });
+          await interaction.reply({
+            embeds: [buildEventCreateEmbed(eventId, name, host, time, interaction.user.tag)]
+          });
           return;
         }
 
-        const latest = userRows[userRows.length - 1];
-        await interaction.reply({
-          embeds: [buildWhoPromotedEmbed(targetUser, latest)]
-        });
-        return;
+        if (sub === 'start') {
+          const name = interaction.options.getString('name');
+          const rowNumber = findEventRowByName(eventRows, name);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That event was not found.' });
+            return;
+          }
+
+          const row = eventRows[rowNumber - 1];
+          row[5] = 'Active';
+
+          await updateEventRow(rowNumber, [
+            row[0] || '',
+            row[1] || '',
+            row[2] || '',
+            row[3] || '',
+            row[4] || '',
+            row[5] || 'Active',
+            row[6] || 0,
+            row[7] || '',
+            row[8] || '',
+            row[9] || '',
+            row[10] || ''
+          ]);
+
+          await interaction.reply({
+            embeds: [buildEventSimpleEmbed('EVENT STARTED', `Event **${name}** is now marked as \`Active\`.`)]
+          });
+          return;
+        }
+
+        if (sub === 'end') {
+          const name = interaction.options.getString('name');
+          const rowNumber = findEventRowByName(eventRows, name);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That event was not found.' });
+            return;
+          }
+
+          const row = eventRows[rowNumber - 1];
+          row[5] = 'Closed';
+          row[10] = new Date().toISOString();
+
+          await updateEventRow(rowNumber, [
+            row[0] || '',
+            row[1] || '',
+            row[2] || '',
+            row[3] || '',
+            row[4] || '',
+            row[5] || 'Closed',
+            row[6] || 0,
+            row[7] || '',
+            row[8] || '',
+            row[9] || '',
+            row[10] || ''
+          ]);
+
+          await interaction.reply({
+            embeds: [buildEventSimpleEmbed('EVENT CLOSED', `Event **${name}** has been closed.`)]
+          });
+          return;
+        }
+
+        if (sub === 'host') {
+          const name = interaction.options.getString('event');
+          const hostUser = interaction.options.getUser('user');
+          const rowNumber = findEventRowByName(eventRows, name);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That event was not found.' });
+            return;
+          }
+
+          const row = eventRows[rowNumber - 1];
+          row[2] = hostUser.tag;
+          row[3] = hostUser.id;
+
+          await updateEventRow(rowNumber, [
+            row[0] || '',
+            row[1] || '',
+            row[2] || '',
+            row[3] || '',
+            row[4] || '',
+            row[5] || '',
+            row[6] || 0,
+            row[7] || '',
+            row[8] || '',
+            row[9] || '',
+            row[10] || ''
+          ]);
+
+          await interaction.reply({
+            embeds: [buildEventSimpleEmbed('EVENT HOST UPDATED', `Host for **${name}** is now **${hostUser.tag}**.`)]
+          });
+          return;
+        }
+
+        if (sub === 'attendee') {
+          const name = interaction.options.getString('event');
+          const attendeeUser = interaction.options.getUser('user');
+          const rowNumber = findEventRowByName(eventRows, name);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That event was not found.' });
+            return;
+          }
+
+          const row = eventRows[rowNumber - 1];
+          const attendeeIds = parseAttendeeIds(row[7] || '');
+
+          if (!attendeeIds.includes(attendeeUser.id)) {
+            attendeeIds.push(attendeeUser.id);
+          }
+
+          row[6] = attendeeIds.length;
+          row[7] = stringifyAttendeeIds(attendeeIds);
+
+          await updateEventRow(rowNumber, [
+            row[0] || '',
+            row[1] || '',
+            row[2] || '',
+            row[3] || '',
+            row[4] || '',
+            row[5] || '',
+            row[6] || 0,
+            row[7] || '',
+            row[8] || '',
+            row[9] || '',
+            row[10] || ''
+          ]);
+
+          await interaction.reply({
+            embeds: [buildEventSimpleEmbed('ATTENDEE LOGGED', `**${attendeeUser.tag}** has been added to **${name}**.`)]
+          });
+          return;
+        }
+
+        if (sub === 'attendance') {
+          const name = interaction.options.getString('event');
+          const rowNumber = findEventRowByName(eventRows, name);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That event was not found.' });
+            return;
+          }
+
+          const row = eventRows[rowNumber - 1];
+          const attendeeIds = parseAttendeeIds(row[7] || '');
+
+          await interaction.reply({
+            embeds: [buildAttendanceEmbed(name, attendeeIds)]
+          });
+          return;
+        }
+
+        if (sub === 'history') {
+          const targetUser = interaction.options.getUser('user');
+          await interaction.reply({
+            embeds: [buildEventHistoryEmbed(targetUser, eventRows)]
+          });
+          return;
+        }
+
+        if (sub === 'leaderboard') {
+          await interaction.reply({
+            embeds: [buildEventLeaderboardEmbed(eventRows)]
+          });
+          return;
+        }
+
+        if (sub === 'report') {
+          const name = interaction.options.getString('event');
+          const rowNumber = findEventRowByName(eventRows, name);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That event was not found.' });
+            return;
+          }
+
+          await interaction.reply({
+            embeds: [buildEventReportEmbed(eventRows[rowNumber - 1])]
+          });
+          return;
+        }
+
+        if (sub === 'delete') {
+          const name = interaction.options.getString('event');
+          const rowNumber = findEventRowByName(eventRows, name);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That event was not found.' });
+            return;
+          }
+
+          await clearEventRow(rowNumber);
+
+          await interaction.reply({
+            embeds: [buildEventSimpleEmbed('EVENT RECORD DELETED', `The event record for **${name}** has been cleared.`)]
+          });
+          return;
+        }
       }
 
       if (command === 'ping') {
@@ -911,15 +1029,17 @@ client.on('interactionCreate', async interaction => {
             '`/rostercounts` - show roster totals\n' +
             '`/warn user:@member reason:<text>` - log a warning\n' +
             '`/punishments user:@member` - show punishment history\n' +
-            '`/promote user:@member new_rank:@role reason:<text>` - log a promotion\n' +
-            '`/demote user:@member new_rank:@role reason:<text>` - log a demotion\n' +
-            '`/setrank user:@member new_rank:@role reason:<text>` - directly set rank\n' +
-            '`/rankhistory user:@member` - show rank history\n' +
-            '`/promotionlog` - recent promotions\n' +
-            '`/demotionlog` - recent demotions\n' +
-            '`/who_promoted user:@member` - show last rank changer\n' +
-            '`/ping` - bot status\n\n' +
-            'Other commands are registered and will be wired next.'
+            '`/event create name:<text> time:<text> host:@user`\n' +
+            '`/event start name:<text>`\n' +
+            '`/event end name:<text>`\n' +
+            '`/event host user:@user event:<text>`\n' +
+            '`/event attendee event:<text> user:@user`\n' +
+            '`/event attendance event:<text>`\n' +
+            '`/event history user:@user`\n' +
+            '`/event leaderboard`\n' +
+            '`/event report event:<text>`\n' +
+            '`/event delete event:<text>`\n' +
+            '`/ping` - bot status'
         });
         return;
       }
@@ -927,10 +1047,7 @@ client.on('interactionCreate', async interaction => {
       if (command === 'stats') {
         const rows = await getAllRows();
         const total = Math.max(rows.length - 1, 0);
-
-        await interaction.reply({
-          content: `Current personnel records logged: **${total}**`
-        });
+        await interaction.reply({ content: `Current personnel records logged: **${total}**` });
         return;
       }
 
@@ -948,9 +1065,7 @@ client.on('interactionCreate', async interaction => {
           .map(([rank, count]) => `**${rank}:** ${count}`)
           .join('\n');
 
-        await interaction.reply({
-          content: text || 'No rank data found.'
-        });
+        await interaction.reply({ content: text || 'No rank data found.' });
         return;
       }
 
@@ -968,9 +1083,7 @@ client.on('interactionCreate', async interaction => {
           .map(([status, count]) => `**${status}:** ${count}`)
           .join('\n');
 
-        await interaction.reply({
-          content: text || 'No status data found.'
-        });
+        await interaction.reply({ content: text || 'No status data found.' });
         return;
       }
 
@@ -1011,7 +1124,6 @@ client.on('interactionCreate', async interaction => {
       if (command === 'discharge') return replyNotBuilt(interaction, '/discharge');
       if (command === 'loa') return replyNotBuilt(interaction, '/loa');
       if (command === 'return') return replyNotBuilt(interaction, '/return');
-
       if (command === 'strike') return replyNotBuilt(interaction, '/strike');
       if (command === 'note') return replyNotBuilt(interaction, '/note');
       if (command === 'mute') return replyNotBuilt(interaction, '/mute');
@@ -1021,17 +1133,6 @@ client.on('interactionCreate', async interaction => {
       if (command === 'modhistory') return replyNotBuilt(interaction, '/modhistory');
       if (command === 'clearwarn') return replyNotBuilt(interaction, '/clearwarn');
       if (command === 'cases') return replyNotBuilt(interaction, '/cases');
-
-      if (command === 'event') {
-        const sub = interaction.options.getSubcommand();
-        return replyNotBuilt(interaction, `/event ${sub}`);
-      }
-
-      if (command === 'report') {
-        const sub = interaction.options.getSubcommand();
-        return replyNotBuilt(interaction, `/report ${sub}`);
-      }
-
       if (command === 'history') return replyNotBuilt(interaction, '/history');
       if (command === 'userinfo') return replyNotBuilt(interaction, '/userinfo');
       if (command === 'audit') return replyNotBuilt(interaction, '/audit');
@@ -1043,6 +1144,17 @@ client.on('interactionCreate', async interaction => {
       if (command === 'setup') return replyNotBuilt(interaction, '/setup');
       if (command === 'setlogchannel') return replyNotBuilt(interaction, '/setlogchannel');
       if (command === 'permissions') return replyNotBuilt(interaction, '/permissions');
+      if (command === 'promote') return replyNotBuilt(interaction, '/promote');
+      if (command === 'demote') return replyNotBuilt(interaction, '/demote');
+      if (command === 'setrank') return replyNotBuilt(interaction, '/setrank');
+      if (command === 'rankhistory') return replyNotBuilt(interaction, '/rankhistory');
+      if (command === 'promotionlog') return replyNotBuilt(interaction, '/promotionlog');
+      if (command === 'demotionlog') return replyNotBuilt(interaction, '/demotionlog');
+      if (command === 'who_promoted') return replyNotBuilt(interaction, '/who_promoted');
+      if (command === 'report') {
+        const sub = interaction.options.getSubcommand();
+        return replyNotBuilt(interaction, `/report ${sub}`);
+      }
     }
 
     if (interaction.isButton()) {
@@ -1056,14 +1168,12 @@ client.on('interactionCreate', async interaction => {
       if (interaction.customId === 'update_modal') {
         const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
         const member = await interaction.guild.members.fetch(interaction.user.id);
-        const role = getRank(member);
+        let role = getRank(member);
         const rows = await getAllRows();
         const existingRowNumber = findUserRow(rows, interaction.user.id);
 
         if (!existingRowNumber) {
-          await interaction.reply({
-            content: 'You are not verified yet. Use /verify first.'
-          });
+          await interaction.reply({ content: 'You are not verified yet. Use /verify first.' });
           return;
         }
 
@@ -1071,7 +1181,11 @@ client.on('interactionCreate', async interaction => {
         const existingId = existingRow[0];
         const currentStatus = existingRow[6] || 'Active';
 
-        await updateRow(existingRowNumber, [
+        if (role === 'No Rank' && existingRow[3]) {
+          role = existingRow[3];
+        }
+
+        await updatePersonnelRow(existingRowNumber, [
           existingId,
           interaction.user.tag,
           interaction.user.id,
@@ -1081,16 +1195,8 @@ client.on('interactionCreate', async interaction => {
           currentStatus
         ]);
 
-        const embed = buildUpdateEmbed(
-          interaction.user.tag,
-          existingId,
-          robloxUsername,
-          role,
-          currentStatus
-        );
-
         await interaction.reply({
-          embeds: [embed],
+          embeds: [buildUpdateEmbed(interaction.user.tag, existingId, robloxUsername, role, currentStatus)],
           components: [buildUpdateButton()]
         });
         return;
@@ -1190,46 +1296,6 @@ async function start() {
       ),
 
     new SlashCommandBuilder()
-      .setName('discharge')
-      .setDescription('mark a user as discharged')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('reason')
-          .setDescription('reason')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('loa')
-      .setDescription('mark a user as on leave of absence')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('reason')
-          .setDescription('reason')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('return')
-      .setDescription('return a user from LOA')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
       .setName('warn')
       .setDescription('warn a user')
       .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
@@ -1245,101 +1311,6 @@ async function start() {
       ),
 
     new SlashCommandBuilder()
-      .setName('strike')
-      .setDescription('strike a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('reason')
-          .setDescription('reason')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('note')
-      .setDescription('add an internal note to a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('note')
-          .setDescription('note text')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('mute')
-      .setDescription('mute a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('duration')
-          .setDescription('duration, example: 1h')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('reason')
-          .setDescription('reason')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('kick')
-      .setDescription('kick a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('reason')
-          .setDescription('reason')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('ban')
-      .setDescription('ban a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('reason')
-          .setDescription('reason')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('unban')
-      .setDescription('unban a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
-      .addStringOption(o =>
-        o.setName('userid')
-          .setDescription('user id to unban')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('reason')
-          .setDescription('reason')
-          .setRequired(false)
-      ),
-
-    new SlashCommandBuilder()
       .setName('punishments')
       .setDescription('show punishment history for a user')
       .addUserOption(o =>
@@ -1347,125 +1318,6 @@ async function start() {
           .setDescription('target user')
           .setRequired(true)
       ),
-
-    new SlashCommandBuilder()
-      .setName('modhistory')
-      .setDescription('show full moderation history for a user')
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('clearwarn')
-      .setDescription('clear a warning by case id')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('caseid')
-          .setDescription('case id')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('cases')
-      .setDescription('show all logged cases for a user')
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('promote')
-      .setDescription('promote a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addRoleOption(o =>
-        o.setName('new_rank')
-          .setDescription('new rank role')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('reason')
-          .setDescription('reason')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('demote')
-      .setDescription('demote a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addRoleOption(o =>
-        o.setName('new_rank')
-          .setDescription('new rank role')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('reason')
-          .setDescription('reason')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('setrank')
-      .setDescription('directly set a user rank')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      )
-      .addRoleOption(o =>
-        o.setName('new_rank')
-          .setDescription('new rank role')
-          .setRequired(true)
-      )
-      .addStringOption(o =>
-        o.setName('reason')
-          .setDescription('reason')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('rankhistory')
-      .setDescription('show rank history for a user')
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('who_promoted')
-      .setDescription('show who last changed a user rank')
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('promotionlog')
-      .setDescription('show recent promotions'),
-
-    new SlashCommandBuilder()
-      .setName('demotionlog')
-      .setDescription('show recent demotions'),
 
     new SlashCommandBuilder()
       .setName('event')
@@ -1525,64 +1377,16 @@ async function start() {
       ),
 
     new SlashCommandBuilder()
-      .setName('report')
-      .setDescription('report system')
-      .addSubcommand(s =>
-        s.setName('submit')
-          .setDescription('submit a report')
-          .addStringOption(o =>
-            o.setName('type')
-              .setDescription('report type')
-              .setRequired(true)
-              .addChoices(
-                { name: 'Ranking', value: 'ranking' },
-                { name: 'General', value: 'general' },
-                { name: 'Moderation', value: 'moderation' },
-                { name: 'Event', value: 'event' }
-              )
-          )
-          .addStringOption(o => o.setName('details').setDescription('details').setRequired(true))
-      )
-      .addSubcommand(s =>
-        s.setName('view')
-          .setDescription('view a report')
-          .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
-      )
-      .addSubcommand(s =>
-        s.setName('list')
-          .setDescription('list reports')
-      )
-      .addSubcommand(s =>
-        s.setName('assign')
-          .setDescription('assign a report')
-          .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
-          .addUserOption(o => o.setName('staff').setDescription('staff user').setRequired(true))
-      )
-      .addSubcommand(s =>
-        s.setName('close')
-          .setDescription('close a report')
-          .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
-          .addStringOption(o => o.setName('result').setDescription('result').setRequired(true))
-      )
-      .addSubcommand(s =>
-        s.setName('history')
-          .setDescription('show report history for a user')
-          .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      )
-      .addSubcommand(s =>
-        s.setName('reopen')
-          .setDescription('reopen a report')
-          .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
-      ),
+      .setName('stats')
+      .setDescription('show overall empire stats'),
 
     new SlashCommandBuilder()
-      .setName('history')
-      .setDescription('show full combined history for a user')
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      ),
+      .setName('rankstats')
+      .setDescription('show rank counts'),
+
+    new SlashCommandBuilder()
+      .setName('statusstats')
+      .setDescription('show status counts'),
 
     new SlashCommandBuilder()
       .setName('idlookup')
@@ -1594,26 +1398,169 @@ async function start() {
       ),
 
     new SlashCommandBuilder()
+      .setName('ping')
+      .setDescription('check bot status'),
+
+    new SlashCommandBuilder()
+      .setName('help')
+      .setDescription('show command help'),
+
+    new SlashCommandBuilder()
+      .setName('discharge')
+      .setDescription('mark a user as discharged')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('loa')
+      .setDescription('mark a user as on leave of absence')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('return')
+      .setDescription('return a user from LOA')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('strike')
+      .setDescription('strike a user')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('note')
+      .setDescription('add an internal note to a user')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addStringOption(o => o.setName('note').setDescription('note text').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('mute')
+      .setDescription('mute a user')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addStringOption(o => o.setName('duration').setDescription('duration').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('kick')
+      .setDescription('kick a user')
+      .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('ban')
+      .setDescription('ban a user')
+      .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('unban')
+      .setDescription('unban a user')
+      .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+      .addStringOption(o => o.setName('userid').setDescription('user id').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(false)),
+
+    new SlashCommandBuilder()
+      .setName('modhistory')
+      .setDescription('show full moderation history for a user')
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('clearwarn')
+      .setDescription('clear a warning by case id')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('cases')
+      .setDescription('show all logged cases for a user')
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('promote')
+      .setDescription('promote a user')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addRoleOption(o => o.setName('new_rank').setDescription('new rank role').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('demote')
+      .setDescription('demote a user')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addRoleOption(o => o.setName('new_rank').setDescription('new rank role').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('setrank')
+      .setDescription('set a user rank')
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      .addRoleOption(o => o.setName('new_rank').setDescription('new rank role').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('rankhistory')
+      .setDescription('show rank history for a user')
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('promotionlog')
+      .setDescription('show recent promotions'),
+
+    new SlashCommandBuilder()
+      .setName('demotionlog')
+      .setDescription('show recent demotions'),
+
+    new SlashCommandBuilder()
+      .setName('who_promoted')
+      .setDescription('show who last changed a user rank')
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('report')
+      .setDescription('report system')
+      .addSubcommand(s => s.setName('submit').setDescription('submit a report')
+        .addStringOption(o => o.setName('type').setDescription('type').setRequired(true))
+        .addStringOption(o => o.setName('details').setDescription('details').setRequired(true)))
+      .addSubcommand(s => s.setName('view').setDescription('view a report')
+        .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true)))
+      .addSubcommand(s => s.setName('list').setDescription('list reports'))
+      .addSubcommand(s => s.setName('assign').setDescription('assign a report')
+        .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
+        .addUserOption(o => o.setName('staff').setDescription('staff').setRequired(true)))
+      .addSubcommand(s => s.setName('close').setDescription('close a report')
+        .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
+        .addStringOption(o => o.setName('result').setDescription('result').setRequired(true)))
+      .addSubcommand(s => s.setName('history').setDescription('report history')
+        .addUserOption(o => o.setName('user').setDescription('user').setRequired(true)))
+      .addSubcommand(s => s.setName('reopen').setDescription('reopen a report')
+        .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))),
+
+    new SlashCommandBuilder()
+      .setName('history')
+      .setDescription('show full combined history for a user')
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
+
+    new SlashCommandBuilder()
       .setName('userinfo')
       .setDescription('show quick user info')
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      ),
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
 
     new SlashCommandBuilder()
       .setName('audit')
       .setDescription('show all actions involving a user')
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      ),
-
-    new SlashCommandBuilder()
-      .setName('stats')
-      .setDescription('show overall empire stats'),
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
 
     new SlashCommandBuilder()
       .setName('staffstats')
@@ -1624,22 +1571,10 @@ async function start() {
       .setDescription('show host stats'),
 
     new SlashCommandBuilder()
-      .setName('rankstats')
-      .setDescription('show rank counts'),
-
-    new SlashCommandBuilder()
-      .setName('statusstats')
-      .setDescription('show status counts'),
-
-    new SlashCommandBuilder()
       .setName('syncroles')
       .setDescription('refresh a user role in the database')
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o =>
-        o.setName('user')
-          .setDescription('target user')
-          .setRequired(true)
-      ),
+      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
 
     new SlashCommandBuilder()
       .setName('syncall')
@@ -1652,53 +1587,23 @@ async function start() {
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     new SlashCommandBuilder()
-      .setName('ping')
-      .setDescription('check bot status'),
-
-    new SlashCommandBuilder()
-      .setName('help')
-      .setDescription('show command help'),
-
-    new SlashCommandBuilder()
       .setName('setup')
-      .setDescription('open the setup panel')
+      .setDescription('open setup panel')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     new SlashCommandBuilder()
       .setName('setlogchannel')
       .setDescription('set a log channel')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-      .addStringOption(o =>
-        o.setName('type')
-          .setDescription('log type')
-          .setRequired(true)
-          .addChoices(
-            { name: 'Moderation', value: 'moderation' },
-            { name: 'Event', value: 'event' },
-            { name: 'Promotion', value: 'promotion' },
-            { name: 'Report', value: 'report' }
-          )
-      )
-      .addChannelOption(o =>
-        o.setName('channel')
-          .setDescription('log channel')
-          .setRequired(true)
-      ),
+      .addStringOption(o => o.setName('type').setDescription('type').setRequired(true))
+      .addChannelOption(o => o.setName('channel').setDescription('channel').setRequired(true)),
 
     new SlashCommandBuilder()
       .setName('permissions')
       .setDescription('set permission level for a role')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-      .addRoleOption(o =>
-        o.setName('role')
-          .setDescription('role')
-          .setRequired(true)
-      )
-      .addIntegerOption(o =>
-        o.setName('level')
-          .setDescription('permission level')
-          .setRequired(true)
-      ),
+      .addRoleOption(o => o.setName('role').setDescription('role').setRequired(true))
+      .addIntegerOption(o => o.setName('level').setDescription('level').setRequired(true)),
   ].map(command => command.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);

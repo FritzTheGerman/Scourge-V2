@@ -35,6 +35,7 @@ const sheets = new google.sheets({
 const PERSONNEL_RANGE = 'A:G';
 const PUNISHMENTS_RANGE = 'Punishments!A:H';
 const EVENTS_RANGE = 'Events!A:K';
+const REPORTS_RANGE = 'Reports!A:K';
 
 /* ----------------------------- HELPERS ----------------------------- */
 
@@ -72,6 +73,15 @@ async function getEventRows() {
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
     range: EVENTS_RANGE,
+  });
+
+  return response.data.values || [];
+}
+
+async function getReportRows() {
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: REPORTS_RANGE,
   });
 
   return response.data.values || [];
@@ -151,6 +161,33 @@ async function ensureEventsHeader() {
   }
 }
 
+async function ensureReportsHeader() {
+  const rows = await getReportRows();
+
+  if (rows.length === 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: 'Reports!A1:K1',
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [[
+          'Case ID',
+          'Report Type',
+          'Details',
+          'Submitted By Username',
+          'Submitted By ID',
+          'Assigned Staff Username',
+          'Assigned Staff ID',
+          'Status',
+          'Result',
+          'Created At',
+          'Closed At'
+        ]]
+      }
+    });
+  }
+}
+
 function findUserRow(rows, discordId) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][2] === discordId) {
@@ -202,6 +239,15 @@ function findEventRowByName(rows, eventName) {
     }
   }
 
+  return null;
+}
+
+function findReportRowByCaseId(rows, caseId) {
+  for (let i = 1; i < rows.length; i++) {
+    if (Number(rows[i][0]) === Number(caseId)) {
+      return i + 1;
+    }
+  }
   return null;
 }
 
@@ -266,6 +312,24 @@ async function clearEventRow(rowNumber) {
   await sheets.spreadsheets.values.clear({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
     range: `Events!A${rowNumber}:K${rowNumber}`,
+  });
+}
+
+async function addReportRow(data) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: REPORTS_RANGE,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [data] },
+  });
+}
+
+async function updateReportRow(rowNumber, data) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `Reports!A${rowNumber}:K${rowNumber}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [data] },
   });
 }
 
@@ -544,6 +608,85 @@ function buildEventLeaderboardEmbed(rows) {
     .setTimestamp();
 }
 
+function buildReportSubmitEmbed(caseId, reportType, submittedBy) {
+  return new EmbedBuilder()
+    .setColor(0x6A0000)
+    .setTitle('REPORT SUBMITTED')
+    .addFields(
+      { name: 'Case ID', value: `\`${formatIdNumber(caseId)}\``, inline: false },
+      { name: 'Report Type', value: `\`${reportType}\``, inline: false },
+      { name: 'Submitted By', value: `\`${submittedBy}\``, inline: false },
+      { name: 'Status', value: '`Open`', inline: false }
+    )
+    .setFooter({ text: 'Empire Report System • Case Created' })
+    .setTimestamp();
+}
+
+function buildReportViewEmbed(row) {
+  return new EmbedBuilder()
+    .setColor(0x6A0000)
+    .setTitle('REPORT CASE')
+    .addFields(
+      { name: 'Case ID', value: `\`${formatIdNumber(row[0] || '0')}\``, inline: false },
+      { name: 'Report Type', value: `\`${row[1] || 'Unknown'}\``, inline: false },
+      { name: 'Details', value: `\`${row[2] || 'No details'}\``, inline: false },
+      { name: 'Submitted By Username', value: `\`${row[3] || 'Unknown'}\``, inline: false },
+      { name: 'Submitted By ID', value: `\`${row[4] || 'Unknown'}\``, inline: false },
+      { name: 'Assigned Staff Username', value: `\`${row[5] || 'Unassigned'}\``, inline: false },
+      { name: 'Assigned Staff ID', value: `\`${row[6] || 'Unassigned'}\``, inline: false },
+      { name: 'Status', value: `\`${row[7] || 'Open'}\``, inline: false },
+      { name: 'Result', value: `\`${row[8] || 'Pending'}\``, inline: false },
+      { name: 'Created At', value: `\`${row[9] || 'Unknown'}\``, inline: false },
+      { name: 'Closed At', value: `\`${row[10] || 'Not Closed'}\``, inline: false }
+    )
+    .setFooter({ text: 'Empire Report System • Case Lookup' })
+    .setTimestamp();
+}
+
+function buildReportListEmbed(rows) {
+  const data = rows.slice(1).slice(-10).reverse();
+
+  const description = data.length
+    ? data.map(row => {
+        const caseId = formatIdNumber(row[0] || '0');
+        const type = row[1] || 'Unknown';
+        const status = row[7] || 'Open';
+        const submitter = row[3] || 'Unknown';
+        return `**Case ${caseId}** • \`${type}\`\nStatus: \`${status}\`\nBy: \`${submitter}\``;
+      }).join('\n\n')
+    : 'No reports found.';
+
+  return new EmbedBuilder()
+    .setColor(0x6A0000)
+    .setTitle('RECENT REPORTS')
+    .setDescription(description)
+    .setFooter({ text: 'Empire Report System • Recent Cases' })
+    .setTimestamp();
+}
+
+function buildReportHistoryEmbed(targetUser, rows) {
+  const data = rows.slice(1).filter(
+    row => row[4] === targetUser.id || row[6] === targetUser.id
+  );
+
+  const description = data.length
+    ? data.slice(-10).reverse().map(row => {
+        const caseId = formatIdNumber(row[0] || '0');
+        const type = row[1] || 'Unknown';
+        const status = row[7] || 'Open';
+        const role = row[4] === targetUser.id ? 'Submitter' : 'Assigned Staff';
+        return `**Case ${caseId}** • \`${type}\`\nRole: \`${role}\`\nStatus: \`${status}\``;
+      }).join('\n\n')
+    : 'No report history found for this user.';
+
+  return new EmbedBuilder()
+    .setColor(0x6A0000)
+    .setTitle('REPORT HISTORY')
+    .setDescription(`Report history for **${targetUser.tag}**\n\n${description}`)
+    .setFooter({ text: 'Empire Report System • History Lookup' })
+    .setTimestamp();
+}
+
 function buildUpdateButton() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -582,6 +725,7 @@ client.once('ready', async () => {
   await ensurePersonnelHeader();
   await ensurePunishmentsHeader();
   await ensureEventsHeader();
+  await ensureReportsHeader();
   console.log('BOT ONLINE');
 });
 
@@ -1011,6 +1155,170 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
+      if (command === 'report') {
+        const sub = interaction.options.getSubcommand();
+        const reportRows = await getReportRows();
+
+        if (sub === 'submit') {
+          const reportType = interaction.options.getString('type');
+          const details = interaction.options.getString('details');
+          const caseId = getNextCaseId(reportRows);
+
+          await addReportRow([
+            caseId,
+            reportType,
+            details,
+            interaction.user.tag,
+            interaction.user.id,
+            '',
+            '',
+            'Open',
+            '',
+            new Date().toISOString(),
+            ''
+          ]);
+
+          await interaction.reply({
+            embeds: [buildReportSubmitEmbed(caseId, reportType, interaction.user.tag)]
+          });
+          return;
+        }
+
+        if (sub === 'list') {
+          await interaction.reply({
+            embeds: [buildReportListEmbed(reportRows)]
+          });
+          return;
+        }
+
+        if (sub === 'view') {
+          const caseId = interaction.options.getString('caseid');
+          const rowNumber = findReportRowByCaseId(reportRows, caseId);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That report case was not found.' });
+            return;
+          }
+
+          await interaction.reply({
+            embeds: [buildReportViewEmbed(reportRows[rowNumber - 1])]
+          });
+          return;
+        }
+
+        if (sub === 'assign') {
+          const caseId = interaction.options.getString('caseid');
+          const staff = interaction.options.getUser('staff');
+          const rowNumber = findReportRowByCaseId(reportRows, caseId);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That report case was not found.' });
+            return;
+          }
+
+          const row = reportRows[rowNumber - 1];
+          row[5] = staff.tag;
+          row[6] = staff.id;
+          row[7] = row[7] || 'Assigned';
+
+          await updateReportRow(rowNumber, [
+            row[0] || '',
+            row[1] || '',
+            row[2] || '',
+            row[3] || '',
+            row[4] || '',
+            row[5] || '',
+            row[6] || '',
+            'Assigned',
+            row[8] || '',
+            row[9] || '',
+            row[10] || ''
+          ]);
+
+          await interaction.reply({
+            content: `Case **${formatIdNumber(caseId)}** has been assigned to **${staff.tag}**.`
+          });
+          return;
+        }
+
+        if (sub === 'close') {
+          const caseId = interaction.options.getString('caseid');
+          const result = interaction.options.getString('result');
+          const rowNumber = findReportRowByCaseId(reportRows, caseId);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That report case was not found.' });
+            return;
+          }
+
+          const row = reportRows[rowNumber - 1];
+          row[7] = 'Closed';
+          row[8] = result;
+          row[10] = new Date().toISOString();
+
+          await updateReportRow(rowNumber, [
+            row[0] || '',
+            row[1] || '',
+            row[2] || '',
+            row[3] || '',
+            row[4] || '',
+            row[5] || '',
+            row[6] || '',
+            'Closed',
+            row[8] || '',
+            row[9] || '',
+            row[10] || ''
+          ]);
+
+          await interaction.reply({
+            content: `Case **${formatIdNumber(caseId)}** has been closed.`
+          });
+          return;
+        }
+
+        if (sub === 'history') {
+          const targetUser = interaction.options.getUser('user');
+
+          await interaction.reply({
+            embeds: [buildReportHistoryEmbed(targetUser, reportRows)]
+          });
+          return;
+        }
+
+        if (sub === 'reopen') {
+          const caseId = interaction.options.getString('caseid');
+          const rowNumber = findReportRowByCaseId(reportRows, caseId);
+
+          if (!rowNumber) {
+            await interaction.reply({ content: 'That report case was not found.' });
+            return;
+          }
+
+          const row = reportRows[rowNumber - 1];
+          row[7] = 'Open';
+          row[10] = '';
+
+          await updateReportRow(rowNumber, [
+            row[0] || '',
+            row[1] || '',
+            row[2] || '',
+            row[3] || '',
+            row[4] || '',
+            row[5] || '',
+            row[6] || '',
+            'Open',
+            row[8] || '',
+            row[9] || '',
+            ''
+          ]);
+
+          await interaction.reply({
+            content: `Case **${formatIdNumber(caseId)}** has been reopened.`
+          });
+          return;
+        }
+      }
+
       if (command === 'ping') {
         await interaction.reply({ content: 'Pong. Bot is online.' });
         return;
@@ -1022,13 +1330,13 @@ client.on('interactionCreate', async interaction => {
             '**Empire Bot Commands**\n\n' +
             '`/verify roblox_username:<name>` - first-time verification\n' +
             '`/update roblox_username:<name>` - update your existing record\n' +
-            '`/profile user:@member` - show a user database record\n' +
-            '`/setstatus user:@member status:<Active/Inactive/LOA/Discharged>` - change enlistment status\n' +
-            '`/status user:@member` - show one user enlistment status\n' +
-            '`/roster` - show personnel roster\n' +
-            '`/rostercounts` - show roster totals\n' +
-            '`/warn user:@member reason:<text>` - log a warning\n' +
-            '`/punishments user:@member` - show punishment history\n' +
+            '`/profile user:@member`\n' +
+            '`/setstatus user:@member status:<Active/Inactive/LOA/Discharged>`\n' +
+            '`/status user:@member`\n' +
+            '`/roster`\n' +
+            '`/rostercounts`\n' +
+            '`/warn user:@member reason:<text>`\n' +
+            '`/punishments user:@member`\n' +
             '`/event create name:<text> time:<text> host:@user`\n' +
             '`/event start name:<text>`\n' +
             '`/event end name:<text>`\n' +
@@ -1039,7 +1347,14 @@ client.on('interactionCreate', async interaction => {
             '`/event leaderboard`\n' +
             '`/event report event:<text>`\n' +
             '`/event delete event:<text>`\n' +
-            '`/ping` - bot status'
+            '`/report submit type:<text> details:<text>`\n' +
+            '`/report list`\n' +
+            '`/report view caseid:<id>`\n' +
+            '`/report assign caseid:<id> staff:@user`\n' +
+            '`/report close caseid:<id> result:<text>`\n' +
+            '`/report history user:@user`\n' +
+            '`/report reopen caseid:<id>`\n' +
+            '`/ping`'
         });
         return;
       }
@@ -1151,10 +1466,6 @@ client.on('interactionCreate', async interaction => {
       if (command === 'promotionlog') return replyNotBuilt(interaction, '/promotionlog');
       if (command === 'demotionlog') return replyNotBuilt(interaction, '/demotionlog');
       if (command === 'who_promoted') return replyNotBuilt(interaction, '/who_promoted');
-      if (command === 'report') {
-        const sub = interaction.options.getSubcommand();
-        return replyNotBuilt(interaction, `/report ${sub}`);
-      }
     }
 
     if (interaction.isButton()) {
@@ -1377,6 +1688,57 @@ async function start() {
       ),
 
     new SlashCommandBuilder()
+      .setName('report')
+      .setDescription('report system')
+      .addSubcommand(s =>
+        s.setName('submit')
+          .setDescription('submit a report')
+          .addStringOption(o =>
+            o.setName('type')
+              .setDescription('report type')
+              .setRequired(true)
+              .addChoices(
+                { name: 'ranking', value: 'ranking' },
+                { name: 'general', value: 'general' },
+                { name: 'moderation', value: 'moderation' },
+                { name: 'event', value: 'event' }
+              )
+          )
+          .addStringOption(o => o.setName('details').setDescription('details').setRequired(true))
+      )
+      .addSubcommand(s =>
+        s.setName('list')
+          .setDescription('list reports')
+      )
+      .addSubcommand(s =>
+        s.setName('view')
+          .setDescription('view a report')
+          .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
+      )
+      .addSubcommand(s =>
+        s.setName('assign')
+          .setDescription('assign a report')
+          .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
+          .addUserOption(o => o.setName('staff').setDescription('staff user').setRequired(true))
+      )
+      .addSubcommand(s =>
+        s.setName('close')
+          .setDescription('close a report')
+          .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
+          .addStringOption(o => o.setName('result').setDescription('result').setRequired(true))
+      )
+      .addSubcommand(s =>
+        s.setName('history')
+          .setDescription('show report history for a user')
+          .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+      )
+      .addSubcommand(s =>
+        s.setName('reopen')
+          .setDescription('reopen a report')
+          .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
+      ),
+
+    new SlashCommandBuilder()
       .setName('stats')
       .setDescription('show overall empire stats'),
 
@@ -1404,206 +1766,6 @@ async function start() {
     new SlashCommandBuilder()
       .setName('help')
       .setDescription('show command help'),
-
-    new SlashCommandBuilder()
-      .setName('discharge')
-      .setDescription('mark a user as discharged')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('loa')
-      .setDescription('mark a user as on leave of absence')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('return')
-      .setDescription('return a user from LOA')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('strike')
-      .setDescription('strike a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('note')
-      .setDescription('add an internal note to a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addStringOption(o => o.setName('note').setDescription('note text').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('mute')
-      .setDescription('mute a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addStringOption(o => o.setName('duration').setDescription('duration').setRequired(true))
-      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('kick')
-      .setDescription('kick a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('ban')
-      .setDescription('ban a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('unban')
-      .setDescription('unban a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
-      .addStringOption(o => o.setName('userid').setDescription('user id').setRequired(true))
-      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(false)),
-
-    new SlashCommandBuilder()
-      .setName('modhistory')
-      .setDescription('show full moderation history for a user')
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('clearwarn')
-      .setDescription('clear a warning by case id')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('cases')
-      .setDescription('show all logged cases for a user')
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('promote')
-      .setDescription('promote a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addRoleOption(o => o.setName('new_rank').setDescription('new rank role').setRequired(true))
-      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('demote')
-      .setDescription('demote a user')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addRoleOption(o => o.setName('new_rank').setDescription('new rank role').setRequired(true))
-      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('setrank')
-      .setDescription('set a user rank')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
-      .addRoleOption(o => o.setName('new_rank').setDescription('new rank role').setRequired(true))
-      .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('rankhistory')
-      .setDescription('show rank history for a user')
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('promotionlog')
-      .setDescription('show recent promotions'),
-
-    new SlashCommandBuilder()
-      .setName('demotionlog')
-      .setDescription('show recent demotions'),
-
-    new SlashCommandBuilder()
-      .setName('who_promoted')
-      .setDescription('show who last changed a user rank')
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('report')
-      .setDescription('report system')
-      .addSubcommand(s => s.setName('submit').setDescription('submit a report')
-        .addStringOption(o => o.setName('type').setDescription('type').setRequired(true))
-        .addStringOption(o => o.setName('details').setDescription('details').setRequired(true)))
-      .addSubcommand(s => s.setName('view').setDescription('view a report')
-        .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true)))
-      .addSubcommand(s => s.setName('list').setDescription('list reports'))
-      .addSubcommand(s => s.setName('assign').setDescription('assign a report')
-        .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
-        .addUserOption(o => o.setName('staff').setDescription('staff').setRequired(true)))
-      .addSubcommand(s => s.setName('close').setDescription('close a report')
-        .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))
-        .addStringOption(o => o.setName('result').setDescription('result').setRequired(true)))
-      .addSubcommand(s => s.setName('history').setDescription('report history')
-        .addUserOption(o => o.setName('user').setDescription('user').setRequired(true)))
-      .addSubcommand(s => s.setName('reopen').setDescription('reopen a report')
-        .addStringOption(o => o.setName('caseid').setDescription('case id').setRequired(true))),
-
-    new SlashCommandBuilder()
-      .setName('history')
-      .setDescription('show full combined history for a user')
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('userinfo')
-      .setDescription('show quick user info')
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('audit')
-      .setDescription('show all actions involving a user')
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('staffstats')
-      .setDescription('show staff stats'),
-
-    new SlashCommandBuilder()
-      .setName('hoststats')
-      .setDescription('show host stats'),
-
-    new SlashCommandBuilder()
-      .setName('syncroles')
-      .setDescription('refresh a user role in the database')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('syncall')
-      .setDescription('refresh all users in the database')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
-
-    new SlashCommandBuilder()
-      .setName('backup')
-      .setDescription('export a backup')
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-
-    new SlashCommandBuilder()
-      .setName('setup')
-      .setDescription('open setup panel')
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-
-    new SlashCommandBuilder()
-      .setName('setlogchannel')
-      .setDescription('set a log channel')
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-      .addStringOption(o => o.setName('type').setDescription('type').setRequired(true))
-      .addChannelOption(o => o.setName('channel').setDescription('channel').setRequired(true)),
-
-    new SlashCommandBuilder()
-      .setName('permissions')
-      .setDescription('set permission level for a role')
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-      .addRoleOption(o => o.setName('role').setDescription('role').setRequired(true))
-      .addIntegerOption(o => o.setName('level').setDescription('level').setRequired(true)),
   ].map(command => command.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);

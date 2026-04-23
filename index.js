@@ -222,6 +222,101 @@ function buildProfileEmbed(row) {
     .setTimestamp();
 }
 
+function buildStatusEmbed(targetUser, row) {
+  return new EmbedBuilder()
+    .setColor(0x650000)
+    .setTitle('ENLISTMENT STATUS RECORD')
+    .setDescription(`Status lookup for **${targetUser.tag}**`)
+    .addFields(
+      { name: 'ID Number', value: `\`${formatIdNumber(row[0] || '0')}\``, inline: false },
+      { name: 'Rank Logged', value: `\`${row[3] || 'Unknown'}\``, inline: false },
+      { name: 'Enlistment Status', value: `\`${row[6] || 'Active'}\``, inline: false },
+      { name: 'Last Updated', value: `\`${row[5] || 'Unknown'}\``, inline: false },
+    )
+    .setFooter({ text: 'Empire Verification System • Status Lookup' })
+    .setTimestamp();
+}
+
+function buildRosterEmbed(rows, page = 1, pageSize = 10) {
+  const dataRows = rows.slice(1);
+  const start = (page - 1) * pageSize;
+  const pageRows = dataRows.slice(start, start + pageSize);
+
+  const description = pageRows.length
+    ? pageRows.map(row => {
+        const id = formatIdNumber(row[0] || '0');
+        const discordName = row[1] || 'Unknown';
+        const rank = row[3] || 'Unknown';
+        const roblox = row[4] || 'Unknown';
+        const status = row[6] || 'Active';
+
+        return `**${id}** • ${discordName}\n` +
+               `Rank: \`${rank}\`\n` +
+               `Roblox: \`${roblox}\`\n` +
+               `Status: \`${status}\``;
+      }).join('\n\n')
+    : 'No personnel records found.';
+
+  return new EmbedBuilder()
+    .setColor(0x5A0000)
+    .setTitle('EMPIRE ROSTER')
+    .setDescription(description)
+    .setFooter({
+      text: `Empire Verification System • Page ${page}`
+    })
+    .setTimestamp();
+}
+
+function buildRosterCountsEmbed(rows) {
+  const dataRows = rows.slice(1);
+  const total = dataRows.length;
+
+  const statusCounts = {};
+  const rankCounts = {};
+
+  for (const row of dataRows) {
+    const rank = row[3] || 'Unknown';
+    const status = row[6] || 'Active';
+
+    rankCounts[rank] = (rankCounts[rank] || 0) + 1;
+    statusCounts[status] = (statusCounts[status] || 0) + 1;
+  }
+
+  const statusText = Object.entries(statusCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([status, count]) => `**${status}:** ${count}`)
+    .join('\n') || 'No status data found.';
+
+  const rankText = Object.entries(rankCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([rank, count]) => `**${rank}:** ${count}`)
+    .join('\n') || 'No rank data found.';
+
+  return new EmbedBuilder()
+    .setColor(0x7A0000)
+    .setTitle('EMPIRE ROSTER COUNTS')
+    .addFields(
+      {
+        name: 'Total Personnel Records',
+        value: `\`${total}\``,
+        inline: false
+      },
+      {
+        name: 'Counts by Enlistment Status',
+        value: statusText,
+        inline: false
+      },
+      {
+        name: 'Top Rank Counts',
+        value: rankText,
+        inline: false
+      }
+    )
+    .setFooter({ text: 'Empire Verification System • Roster Summary' })
+    .setTimestamp();
+}
+
 function buildUpdateButton() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -406,6 +501,41 @@ client.on('interactionCreate', async interaction => {
         return;
       }
 
+      if (command === 'status') {
+        const targetUser = interaction.options.getUser('user');
+        const rows = await getAllRows();
+        const rowNumber = findUserRow(rows, targetUser.id);
+
+        if (!rowNumber) {
+          await interaction.reply({
+            content: 'That user is not in the database.'
+          });
+          return;
+        }
+
+        const row = rows[rowNumber - 1];
+        await interaction.reply({
+          embeds: [buildStatusEmbed(targetUser, row)]
+        });
+        return;
+      }
+
+      if (command === 'roster') {
+        const rows = await getAllRows();
+        await interaction.reply({
+          embeds: [buildRosterEmbed(rows)]
+        });
+        return;
+      }
+
+      if (command === 'rostercounts') {
+        const rows = await getAllRows();
+        await interaction.reply({
+          embeds: [buildRosterCountsEmbed(rows)]
+        });
+        return;
+      }
+
       if (command === 'ping') {
         await interaction.reply({ content: 'Pong. Bot is online.' });
         return;
@@ -419,6 +549,9 @@ client.on('interactionCreate', async interaction => {
             '`/update roblox_username:<name>` - update your existing record\n' +
             '`/profile user:@member` - show a user database record\n' +
             '`/setstatus user:@member status:<Active/Inactive/LOA/Discharged>` - change enlistment status\n' +
+            '`/status user:@member` - show one user enlistment status\n' +
+            '`/roster` - show personnel roster\n' +
+            '`/rostercounts` - show roster totals\n' +
             '`/ping` - bot status\n\n' +
             'Other commands are registered and will be wired next.'
         });
@@ -509,9 +642,6 @@ client.on('interactionCreate', async interaction => {
         return;
       }
 
-      if (command === 'status') return replyNotBuilt(interaction, '/status');
-      if (command === 'roster') return replyNotBuilt(interaction, '/roster');
-      if (command === 'rostercounts') return replyNotBuilt(interaction, '/rostercounts');
       if (command === 'discharge') return replyNotBuilt(interaction, '/discharge');
       if (command === 'loa') return replyNotBuilt(interaction, '/loa');
       if (command === 'return') return replyNotBuilt(interaction, '/return');

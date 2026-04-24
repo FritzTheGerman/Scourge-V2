@@ -53,7 +53,7 @@ function simpleEmbed(title, desc) {
     .setColor(0x8C1D00)
     .setTitle(title)
     .setDescription(desc)
-    .setFooter({ text: 'Event System' })
+    .setFooter({ text: 'Empire Event System' })
     .setTimestamp();
 }
 
@@ -66,38 +66,78 @@ const commands = [
 
     .addSubcommand(s =>
       s.setName('create')
-        .setDescription('create event')
-        .addStringOption(o => o.setName('name').setRequired(true))
-        .addStringOption(o => o.setName('time').setRequired(true))
-        .addUserOption(o => o.setName('host').setRequired(true))
+        .setDescription('create an event')
+        .addStringOption(o =>
+          o.setName('name')
+            .setDescription('event name')
+            .setRequired(true)
+        )
+        .addStringOption(o =>
+          o.setName('time')
+            .setDescription('event time')
+            .setRequired(true)
+        )
+        .addUserOption(o =>
+          o.setName('host')
+            .setDescription('event host')
+            .setRequired(true)
+        )
     )
 
     .addSubcommand(s =>
       s.setName('start')
-        .addStringOption(o => o.setName('name').setRequired(true))
+        .setDescription('start an event')
+        .addStringOption(o =>
+          o.setName('name')
+            .setDescription('event name')
+            .setRequired(true)
+        )
     )
 
     .addSubcommand(s =>
       s.setName('end')
-        .addStringOption(o => o.setName('name').setRequired(true))
+        .setDescription('end an event')
+        .addStringOption(o =>
+          o.setName('name')
+            .setDescription('event name')
+            .setRequired(true)
+        )
     )
 
     .addSubcommand(s =>
       s.setName('attendee')
-        .addStringOption(o => o.setName('event').setRequired(true))
-        .addUserOption(o => o.setName('user').setRequired(true))
+        .setDescription('add an attendee to an event')
+        .addStringOption(o =>
+          o.setName('event')
+            .setDescription('event name')
+            .setRequired(true)
+        )
+        .addUserOption(o =>
+          o.setName('user')
+            .setDescription('attendee user')
+            .setRequired(true)
+        )
     )
 
     .addSubcommand(s =>
       s.setName('attendance')
-        .addStringOption(o => o.setName('event').setRequired(true))
+        .setDescription('view event attendance')
+        .addStringOption(o =>
+          o.setName('event')
+            .setDescription('event name')
+            .setRequired(true)
+        )
     )
 
     .addSubcommand(s =>
       s.setName('delete')
-        .addStringOption(o => o.setName('event').setRequired(true))
+        .setDescription('delete an event record')
+        .addStringOption(o =>
+          o.setName('event')
+            .setDescription('event name')
+            .setRequired(true)
+        )
     )
-
 ].map(c => c.toJSON());
 
 /* ---------------- HANDLER ---------------- */
@@ -109,7 +149,6 @@ async function handle(interaction) {
   const sub = interaction.options.getSubcommand();
   const rows = await getRows(EVENTS_RANGE);
 
-  /* CREATE */
   if (sub === 'create') {
     if (!(await requireLevel(interaction, 3))) return true;
 
@@ -134,13 +173,12 @@ async function handle(interaction) {
     ]);
 
     await interaction.reply({
-      embeds: [simpleEmbed('EVENT CREATED', `**${name}** scheduled.`)]
+      embeds: [simpleEmbed('EVENT CREATED', `**${name}** has been scheduled.`)]
     });
 
     return true;
   }
 
-  /* START */
   if (sub === 'start') {
     if (!(await requireLevel(interaction, 3))) return true;
 
@@ -148,30 +186,33 @@ async function handle(interaction) {
     const rowNum = findEventRowByName(rows, name);
 
     if (!rowNum) {
-      await interaction.reply({ content: 'Event not found' });
+      await interaction.reply({ content: 'Event not found.' });
       return true;
     }
 
     const row = rows[rowNum - 1];
 
     await updateRow(`Events!A${rowNum}:K${rowNum}`, [
-      ...row.slice(0, 5),
+      row[0] || '',
+      row[1] || '',
+      row[2] || '',
+      row[3] || '',
+      row[4] || '',
       'Active',
-      row[6],
-      row[7],
-      row[8],
-      row[9],
-      row[10]
+      row[6] || 0,
+      row[7] || '',
+      row[8] || '',
+      row[9] || '',
+      row[10] || ''
     ]);
 
     await interaction.reply({
-      embeds: [simpleEmbed('EVENT STARTED', name)]
+      embeds: [simpleEmbed('EVENT STARTED', `**${name}** is now active.`)]
     });
 
     return true;
   }
 
-  /* END */
   if (sub === 'end') {
     if (!(await requireLevel(interaction, 3))) return true;
 
@@ -179,30 +220,33 @@ async function handle(interaction) {
     const rowNum = findEventRowByName(rows, name);
 
     if (!rowNum) {
-      await interaction.reply({ content: 'Event not found' });
+      await interaction.reply({ content: 'Event not found.' });
       return true;
     }
 
     const row = rows[rowNum - 1];
 
     await updateRow(`Events!A${rowNum}:K${rowNum}`, [
-      ...row.slice(0, 5),
+      row[0] || '',
+      row[1] || '',
+      row[2] || '',
+      row[3] || '',
+      row[4] || '',
       'Closed',
-      row[6],
-      row[7],
-      row[8],
-      row[9],
+      row[6] || 0,
+      row[7] || '',
+      row[8] || '',
+      row[9] || '',
       getCSTTime()
     ]);
 
     await interaction.reply({
-      embeds: [simpleEmbed('EVENT CLOSED', name)]
+      embeds: [simpleEmbed('EVENT CLOSED', `**${name}** has been closed.`)]
     });
 
     return true;
   }
 
-  /* ATTENDEE */
   if (sub === 'attendee') {
     if (!(await requireLevel(interaction, 3))) return true;
 
@@ -211,7 +255,7 @@ async function handle(interaction) {
 
     const rowNum = findEventRowByName(rows, name);
     if (!rowNum) {
-      await interaction.reply({ content: 'Event not found' });
+      await interaction.reply({ content: 'Event not found.' });
       return true;
     }
 
@@ -223,22 +267,26 @@ async function handle(interaction) {
     }
 
     await updateRow(`Events!A${rowNum}:K${rowNum}`, [
-      ...row.slice(0, 6),
+      row[0] || '',
+      row[1] || '',
+      row[2] || '',
+      row[3] || '',
+      row[4] || '',
+      row[5] || '',
       attendees.length,
       stringifyAttendees(attendees),
-      row[8],
-      row[9],
-      row[10]
+      row[8] || '',
+      row[9] || '',
+      row[10] || ''
     ]);
 
     await interaction.reply({
-      embeds: [simpleEmbed('ATTENDEE ADDED', `${user.tag} added`)]
+      embeds: [simpleEmbed('ATTENDEE ADDED', `**${user.tag}** has been added to **${name}**.`)]
     });
 
     return true;
   }
 
-  /* ATTENDANCE */
   if (sub === 'attendance') {
     if (!(await requireLevel(interaction, 1))) return true;
 
@@ -246,21 +294,24 @@ async function handle(interaction) {
     const rowNum = findEventRowByName(rows, name);
 
     if (!rowNum) {
-      await interaction.reply({ content: 'Event not found' });
+      await interaction.reply({ content: 'Event not found.' });
       return true;
     }
 
     const row = rows[rowNum - 1];
     const attendees = parseAttendees(row[7]);
 
+    const list = attendees.length
+      ? attendees.map((id, index) => `${index + 1}. \`${id}\``).join('\n')
+      : 'No attendees logged.';
+
     await interaction.reply({
-      embeds: [simpleEmbed('ATTENDANCE', `${attendees.length} attendees`)]
+      embeds: [simpleEmbed('EVENT ATTENDANCE', `**${name}**\n\n${list}`)]
     });
 
     return true;
   }
 
-  /* DELETE */
   if (sub === 'delete') {
     if (!(await requireLevel(interaction, 4))) return true;
 
@@ -268,14 +319,14 @@ async function handle(interaction) {
     const rowNum = findEventRowByName(rows, name);
 
     if (!rowNum) {
-      await interaction.reply({ content: 'Event not found' });
+      await interaction.reply({ content: 'Event not found.' });
       return true;
     }
 
     await clearRange(`Events!A${rowNum}:K${rowNum}`);
 
     await interaction.reply({
-      embeds: [simpleEmbed('EVENT DELETED', name)]
+      embeds: [simpleEmbed('EVENT DELETED', `**${name}** has been deleted.`)]
     });
 
     return true;

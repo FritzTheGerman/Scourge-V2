@@ -1,52 +1,68 @@
 const { EmbedBuilder } = require('discord.js');
 
-function isOverrideEnabled() {
-  return (process.env.OVERRIDE_MODE || 'no').toLowerCase() === 'yes';
-}
-
 function isOwner(userId) {
   return userId === process.env.OWNER_DISCORD_ID;
 }
 
+function isOverrideEnabled() {
+  return (process.env.OVERRIDE_MODE || 'no').toLowerCase() === 'yes';
+}
+
+function isMaintenanceEnabled() {
+  return (process.env.MAINTENANCE_MODE || 'no').toLowerCase() === 'yes';
+}
+
+function isPanicEnabled() {
+  return (process.env.PANIC_LOCKDOWN || 'no').toLowerCase() === 'yes';
+}
+
+async function blockEmbed(interaction, title, description) {
+  const ownerId = process.env.OWNER_DISCORD_ID || 'Not Set';
+
+  const embed = new EmbedBuilder()
+    .setColor(0x8B0000)
+    .setTitle(title)
+    .setDescription(description)
+    .addFields(
+      { name: 'Authorized Owner', value: ownerId !== 'Not Set' ? `<@${ownerId}>` : '`Not Set`' },
+      { name: 'Authorized Owner ID', value: `\`${ownerId}\`` },
+      { name: 'Your User ID', value: `\`${interaction.user.id}\`` }
+    )
+    .setFooter({ text: 'Scourge Control System' })
+    .setTimestamp();
+
+  await interaction.reply({ embeds: [embed] });
+}
+
 async function checkOverride(interaction) {
-  if (
-    interaction.isChatInputCommand() &&
-    isOverrideEnabled() &&
-    !isOwner(interaction.user.id)
-  ) {
-    const ownerId = process.env.OWNER_DISCORD_ID || 'Not Set';
+  if (!interaction.isChatInputCommand()) return false;
 
-    const embed = new EmbedBuilder()
-      .setColor(0x8B0000)
-      .setTitle('OVERRIDE MODE ACTIVE')
-      .setDescription(
-        `The bot is currently in **Override Mode**.\n\n` +
-        `Only the authorized owner may use commands at this time.`
-      )
-      .addFields(
-        {
-          name: 'Authorized User',
-          value: `<@${ownerId}>`,
-          inline: false
-        },
-        {
-          name: 'Authorized User ID',
-          value: `\`${ownerId}\``,
-          inline: false
-        },
-        {
-          name: 'Your User ID',
-          value: `\`${interaction.user.id}\``,
-          inline: false
-        }
-      )
-      .setFooter({ text: 'Scourge Override System' })
-      .setTimestamp();
+  if (isOwner(interaction.user.id)) return false;
 
-    await interaction.reply({
-      embeds: [embed]
-    });
+  if (isPanicEnabled()) {
+    await blockEmbed(
+      interaction,
+      'PANIC LOCKDOWN ACTIVE',
+      'The bot is currently in **Panic Lockdown**. Only the owner may use commands.'
+    );
+    return true;
+  }
 
+  if (isOverrideEnabled()) {
+    await blockEmbed(
+      interaction,
+      'OVERRIDE MODE ACTIVE',
+      'The bot is currently in **Override Mode**. Only the owner may use commands.'
+    );
+    return true;
+  }
+
+  if (isMaintenanceEnabled()) {
+    await blockEmbed(
+      interaction,
+      'MAINTENANCE MODE ACTIVE',
+      'The bot is currently in **Maintenance Mode**. Commands are temporarily disabled for non-owner users.'
+    );
     return true;
   }
 
@@ -54,5 +70,6 @@ async function checkOverride(interaction) {
 }
 
 module.exports = {
-  checkOverride
+  checkOverride,
+  isOwner
 };

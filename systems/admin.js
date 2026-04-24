@@ -6,6 +6,7 @@ const {
 const { getRows, appendRow, updateRow } = require('../utils/sheets');
 const { ADMIN_ROLES_RANGE } = require('../config');
 const { requireOwner, requireLevel, getPermissionLevel } = require('../utils/permissions');
+const { getCSTTime } = require('../utils/time');
 
 /* ---------------- HELPERS ---------------- */
 
@@ -15,6 +16,8 @@ function findRoleRow(rows, roleId) {
   }
   return null;
 }
+
+/* ---------------- EMBEDS ---------------- */
 
 function simpleEmbed(title, desc) {
   return new EmbedBuilder()
@@ -33,7 +36,8 @@ function adminRolesEmbed(rows) {
         `**${row[0] || 'Unknown Role'}**\n` +
         `Role ID: \`${row[1] || 'Unknown'}\`\n` +
         `Level: \`${row[2] || '0'}\`\n` +
-        `Added By: \`${row[3] || 'Unknown'}\``
+        `Added By: \`${row[3] || 'Unknown'}\`\n` +
+        `Added At: \`${row[4] || 'Unknown'}\``
       ).join('\n\n')
     : 'No admin roles have been added yet.';
 
@@ -55,15 +59,31 @@ const commands = [
     .addSubcommand(s =>
       s.setName('addrole')
         .setDescription('owner only: add admin role')
-        .addRoleOption(o => o.setName('role').setDescription('role').setRequired(true))
-        .addIntegerOption(o => o.setName('level').setDescription('permission level').setRequired(true))
+        .addRoleOption(o =>
+          o.setName('role')
+            .setDescription('role')
+            .setRequired(true)
+        )
+        .addIntegerOption(o =>
+          o.setName('level')
+            .setDescription('permission level')
+            .setRequired(true)
+        )
     )
 
     .addSubcommand(s =>
       s.setName('setrolelevel')
         .setDescription('owner only: change admin role level')
-        .addRoleOption(o => o.setName('role').setDescription('role').setRequired(true))
-        .addIntegerOption(o => o.setName('level').setDescription('new level').setRequired(true))
+        .addRoleOption(o =>
+          o.setName('role')
+            .setDescription('role')
+            .setRequired(true)
+        )
+        .addIntegerOption(o =>
+          o.setName('level')
+            .setDescription('new level')
+            .setRequired(true)
+        )
     )
 
     .addSubcommand(s =>
@@ -89,9 +109,12 @@ const commands = [
     .addSubcommand(s =>
       s.setName('set_owner')
         .setDescription('owner only: set owner for runtime')
-        .addUserOption(o => o.setName('user').setDescription('new owner').setRequired(true))
+        .addUserOption(o =>
+          o.setName('user')
+            .setDescription('new owner')
+            .setRequired(true)
+        )
     )
-
 ].map(c => c.toJSON());
 
 /* ---------------- HANDLER ---------------- */
@@ -102,6 +125,7 @@ async function handle(interaction) {
 
   const sub = interaction.options.getSubcommand();
 
+  /* ADD ROLE */
   if (sub === 'addrole') {
     if (!(await requireOwner(interaction))) return true;
 
@@ -113,7 +137,12 @@ async function handle(interaction) {
 
     if (existingRow) {
       await interaction.reply({
-        embeds: [simpleEmbed('ADMIN ROLE ALREADY EXISTS', `Role **${role.name}** already exists.`)]
+        embeds: [
+          simpleEmbed(
+            'ADMIN ROLE ALREADY EXISTS',
+            `Role **${role.name}** already exists.\nUse \`/admin setrolelevel\` to update it.`
+          )
+        ]
       });
       return true;
     }
@@ -123,16 +152,22 @@ async function handle(interaction) {
       role.id,
       level,
       `${interaction.user.tag} (${interaction.user.id})`,
-      new Date().toISOString()
+      getCSTTime()
     ]);
 
     await interaction.reply({
-      embeds: [simpleEmbed('ADMIN ROLE ADDED', `Role: **${role.name}**\nLevel: \`${level}\``)]
+      embeds: [
+        simpleEmbed(
+          'ADMIN ROLE ADDED',
+          `Role: **${role.name}**\nRole ID: \`${role.id}\`\nPermission Level: \`${level}\``
+        )
+      ]
     });
 
     return true;
   }
 
+  /* SET ROLE LEVEL */
   if (sub === 'setrolelevel') {
     if (!(await requireOwner(interaction))) return true;
 
@@ -144,7 +179,12 @@ async function handle(interaction) {
 
     if (!rowNum) {
       await interaction.reply({
-        embeds: [simpleEmbed('ADMIN ROLE NOT FOUND', `Use /admin addrole first.`)]
+        embeds: [
+          simpleEmbed(
+            'ADMIN ROLE NOT FOUND',
+            `Role **${role.name}** is not listed.\nUse \`/admin addrole\` first.`
+          )
+        ]
       });
       return true;
     }
@@ -154,59 +194,78 @@ async function handle(interaction) {
       role.id,
       level,
       `${interaction.user.tag} (${interaction.user.id})`,
-      new Date().toISOString()
+      getCSTTime()
     ]);
 
     await interaction.reply({
-      embeds: [simpleEmbed('ROLE LEVEL UPDATED', `**${role.name}** → \`${level}\``)]
+      embeds: [
+        simpleEmbed(
+          'ROLE LEVEL UPDATED',
+          `Role: **${role.name}**\nRole ID: \`${role.id}\`\nNew Level: \`${level}\``
+        )
+      ]
     });
 
     return true;
   }
 
+  /* ROLES */
   if (sub === 'roles') {
     if (!(await requireLevel(interaction, 1))) return true;
 
     const rows = await getRows(ADMIN_ROLES_RANGE);
-    await interaction.reply({ embeds: [adminRolesEmbed(rows)] });
+
+    await interaction.reply({
+      embeds: [adminRolesEmbed(rows)]
+    });
+
     return true;
   }
 
+  /* MY PERMISSION */
   if (sub === 'mypermission') {
     const member = await interaction.guild.members.fetch(interaction.user.id);
     const level = await getPermissionLevel(member);
 
     await interaction.reply({
-      embeds: [simpleEmbed('YOUR PERMISSION LEVEL', `Level: \`${level}\``)]
+      embeds: [
+        simpleEmbed(
+          'YOUR PERMISSION LEVEL',
+          `User: **${interaction.user.tag}**\nUser ID: \`${interaction.user.id}\`\nPermission Level: \`${level}\``
+        )
+      ]
     });
 
     return true;
   }
 
+  /* OVERRIDE ON */
   if (sub === 'override_on') {
     if (!(await requireOwner(interaction))) return true;
 
     process.env.OVERRIDE_MODE = 'yes';
 
     await interaction.reply({
-      embeds: [simpleEmbed('OVERRIDE ENABLED', 'Owner only commands active')]
+      embeds: [simpleEmbed('OVERRIDE ENABLED', 'Owner-only command mode is now active.')]
     });
 
     return true;
   }
 
+  /* OVERRIDE OFF */
   if (sub === 'override_off') {
     if (!(await requireOwner(interaction))) return true;
 
     process.env.OVERRIDE_MODE = 'no';
 
     await interaction.reply({
-      embeds: [simpleEmbed('OVERRIDE DISABLED', 'Normal operation restored')]
+      embeds: [simpleEmbed('OVERRIDE DISABLED', 'Normal command operation has been restored.')]
     });
 
     return true;
   }
 
+  /* SET OWNER */
   if (sub === 'set_owner') {
     if (!(await requireOwner(interaction))) return true;
 
@@ -214,7 +273,12 @@ async function handle(interaction) {
     process.env.OWNER_DISCORD_ID = user.id;
 
     await interaction.reply({
-      embeds: [simpleEmbed('OWNER UPDATED', `${user.tag}`)]
+      embeds: [
+        simpleEmbed(
+          'OWNER UPDATED',
+          `New owner: **${user.tag}**\nUser ID: \`${user.id}\`\n\nThis only lasts until Railway restarts.`
+        )
+      ]
     });
 
     return true;

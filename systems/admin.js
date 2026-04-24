@@ -76,28 +76,12 @@ const commands = [
         .setDescription('owner only: disable override mode')
     )
     .addSubcommand(s =>
-      s.setName('maintenance_on')
-        .setDescription('owner only: enable maintenance mode')
-    )
-    .addSubcommand(s =>
-      s.setName('maintenance_off')
-        .setDescription('owner only: disable maintenance mode')
-    )
-    .addSubcommand(s =>
-      s.setName('panic_on')
-        .setDescription('owner only: enable panic lockdown')
-    )
-    .addSubcommand(s =>
-      s.setName('panic_off')
-        .setDescription('owner only: disable panic lockdown')
-    )
-    .addSubcommand(s =>
       s.setName('restart')
         .setDescription('owner only: restart the bot')
     )
     .addSubcommand(s =>
       s.setName('shutdown')
-        .setDescription('owner only: shut down the bot safely')
+        .setDescription('owner only: crash the bot process')
     )
     .addSubcommand(s =>
       s.setName('set_owner')
@@ -195,61 +179,25 @@ async function handle(interaction) {
 
   if (sub === 'override_on') {
     if (!(await requireOwner(interaction))) return true;
+
     process.env.OVERRIDE_MODE = 'yes';
 
     await interaction.reply({
       embeds: [simpleEmbed('OVERRIDE ENABLED', 'Only the owner can use commands.')]
     });
+
     return true;
   }
 
   if (sub === 'override_off') {
     if (!(await requireOwner(interaction))) return true;
+
     process.env.OVERRIDE_MODE = 'no';
 
     await interaction.reply({
       embeds: [simpleEmbed('OVERRIDE DISABLED', 'All users can use commands normally.')]
     });
-    return true;
-  }
 
-  if (sub === 'maintenance_on') {
-    if (!(await requireOwner(interaction))) return true;
-    process.env.MAINTENANCE_MODE = 'yes';
-
-    await interaction.reply({
-      embeds: [simpleEmbed('MAINTENANCE MODE ENABLED', 'Non-owner commands are temporarily disabled.')]
-    });
-    return true;
-  }
-
-  if (sub === 'maintenance_off') {
-    if (!(await requireOwner(interaction))) return true;
-    process.env.MAINTENANCE_MODE = 'no';
-
-    await interaction.reply({
-      embeds: [simpleEmbed('MAINTENANCE MODE DISABLED', 'Commands are available again.')]
-    });
-    return true;
-  }
-
-  if (sub === 'panic_on') {
-    if (!(await requireOwner(interaction))) return true;
-    process.env.PANIC_LOCKDOWN = 'yes';
-
-    await interaction.reply({
-      embeds: [simpleEmbed('PANIC LOCKDOWN ENABLED', 'Only the owner can use commands. This is the strictest lock mode.')]
-    });
-    return true;
-  }
-
-  if (sub === 'panic_off') {
-    if (!(await requireOwner(interaction))) return true;
-    process.env.PANIC_LOCKDOWN = 'no';
-
-    await interaction.reply({
-      embeds: [simpleEmbed('PANIC LOCKDOWN DISABLED', 'Panic lockdown has been lifted.')]
-    });
     return true;
   }
 
@@ -271,11 +219,11 @@ async function handle(interaction) {
     if (!(await requireOwner(interaction))) return true;
 
     await interaction.reply({
-      embeds: [simpleEmbed('SHUTDOWN INITIATED', 'The bot is shutting down safely. Railway may restart it depending on your deployment settings.')]
+      embeds: [simpleEmbed('SYSTEM CRASH INITIATED', 'The bot process is being intentionally crashed by the owner.')]
     });
 
     setTimeout(() => {
-      process.exit(0);
+      throw new Error('Owner initiated system crash.');
     }, 1000);
 
     return true;

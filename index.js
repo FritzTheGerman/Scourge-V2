@@ -15,6 +15,7 @@ const moderation = require('./systems/moderation');
 const events = require('./systems/events');
 const reports = require('./systems/reports');
 const ranks = require('./systems/ranks');
+const admin = require('./systems/admin');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
@@ -48,6 +49,7 @@ client.on('interactionCreate', async interaction => {
     if (await events.handle(interaction)) return;
     if (await reports.handle(interaction)) return;
     if (await ranks.handle(interaction)) return;
+    if (await admin.handle(interaction)) return;
 
   } catch (error) {
     console.error(error);
@@ -74,7 +76,8 @@ async function start() {
     ...moderation.commands,
     ...events.commands,
     ...reports.commands,
-    ...ranks.commands
+    ...ranks.commands,
+    ...admin.commands
   ];
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);

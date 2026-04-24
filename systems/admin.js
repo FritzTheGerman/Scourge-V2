@@ -7,17 +7,12 @@ const { getRows, appendRow, updateRow } = require('../utils/sheets');
 const { ADMIN_ROLES_RANGE } = require('../config');
 const { requireOwner, requireLevel, getPermissionLevel } = require('../utils/permissions');
 
-/* ---------------- HELPERS ---------------- */
-
 function findRoleRow(rows, roleId) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][1] === roleId) return i + 1;
   }
-
   return null;
 }
-
-/* ---------------- EMBEDS ---------------- */
 
 function simpleEmbed(title, desc) {
   return new EmbedBuilder()
@@ -32,14 +27,12 @@ function adminRolesEmbed(rows) {
   const data = rows.slice(1);
 
   const description = data.length
-    ? data.map(row => {
-        return (
-          `**${row[0] || 'Unknown Role'}**\n` +
-          `Role ID: \`${row[1] || 'Unknown'}\`\n` +
-          `Level: \`${row[2] || '0'}\`\n` +
-          `Added By: \`${row[3] || 'Unknown'}\``
-        );
-      }).join('\n\n')
+    ? data.map(row =>
+        `**${row[0] || 'Unknown Role'}**\n` +
+        `Role ID: \`${row[1] || 'Unknown'}\`\n` +
+        `Level: \`${row[2] || '0'}\`\n` +
+        `Added By: \`${row[3] || 'Unknown'}\``
+      ).join('\n\n')
     : 'No admin roles have been added yet.';
 
   return new EmbedBuilder()
@@ -50,47 +43,29 @@ function adminRolesEmbed(rows) {
     .setTimestamp();
 }
 
-/* ---------------- COMMANDS ---------------- */
-
 const commands = [
   new SlashCommandBuilder()
     .setName('admin')
     .setDescription('admin dashboard')
     .addSubcommand(s =>
       s.setName('addrole')
-        .setDescription('owner only: add an admin role with a permission level')
-        .addRoleOption(o =>
-          o.setName('role')
-            .setDescription('role to give admin permissions')
-            .setRequired(true)
-        )
-        .addIntegerOption(o =>
-          o.setName('level')
-            .setDescription('permission level for this role')
-            .setRequired(true)
-        )
+        .setDescription('owner only: add admin role')
+        .addRoleOption(o => o.setName('role').setDescription('role').setRequired(true))
+        .addIntegerOption(o => o.setName('level').setDescription('permission level').setRequired(true))
     )
     .addSubcommand(s =>
       s.setName('setrolelevel')
-        .setDescription('owner only: change an admin role permission level')
-        .addRoleOption(o =>
-          o.setName('role')
-            .setDescription('admin role to update')
-            .setRequired(true)
-        )
-        .addIntegerOption(o =>
-          o.setName('level')
-            .setDescription('new permission level')
-            .setRequired(true)
-        )
+        .setDescription('owner only: change admin role level')
+        .addRoleOption(o => o.setName('role').setDescription('role').setRequired(true))
+        .addIntegerOption(o => o.setName('level').setDescription('new level').setRequired(true))
     )
     .addSubcommand(s =>
       s.setName('roles')
-        .setDescription('view admin roles and permission levels')
+        .setDescription('view admin roles')
     )
     .addSubcommand(s =>
       s.setName('mypermission')
-        .setDescription('view your current permission level')
+        .setDescription('view your permission level')
     )
     .addSubcommand(s =>
       s.setName('override_on')
@@ -101,17 +76,35 @@ const commands = [
         .setDescription('owner only: disable override mode')
     )
     .addSubcommand(s =>
+      s.setName('maintenance_on')
+        .setDescription('owner only: enable maintenance mode')
+    )
+    .addSubcommand(s =>
+      s.setName('maintenance_off')
+        .setDescription('owner only: disable maintenance mode')
+    )
+    .addSubcommand(s =>
+      s.setName('panic_on')
+        .setDescription('owner only: enable panic lockdown')
+    )
+    .addSubcommand(s =>
+      s.setName('panic_off')
+        .setDescription('owner only: disable panic lockdown')
+    )
+    .addSubcommand(s =>
+      s.setName('restart')
+        .setDescription('owner only: restart the bot')
+    )
+    .addSubcommand(s =>
+      s.setName('shutdown')
+        .setDescription('owner only: shut down the bot safely')
+    )
+    .addSubcommand(s =>
       s.setName('set_owner')
-        .setDescription('owner only: set bot owner for this runtime')
-        .addUserOption(o =>
-          o.setName('user')
-            .setDescription('new owner')
-            .setRequired(true)
-        )
+        .setDescription('owner only: set owner for runtime')
+        .addUserOption(o => o.setName('user').setDescription('new owner').setRequired(true))
     )
 ].map(c => c.toJSON());
-
-/* ---------------- HANDLER ---------------- */
 
 async function handle(interaction) {
   if (!interaction.isChatInputCommand()) return false;
@@ -119,7 +112,6 @@ async function handle(interaction) {
 
   const sub = interaction.options.getSubcommand();
 
-  /* ADD ROLE */
   if (sub === 'addrole') {
     if (!(await requireOwner(interaction))) return true;
 
@@ -131,14 +123,8 @@ async function handle(interaction) {
 
     if (existingRow) {
       await interaction.reply({
-        embeds: [
-          simpleEmbed(
-            'ADMIN ROLE ALREADY EXISTS',
-            `Role **${role.name}** is already listed as an admin role.\nUse \`/admin setrolelevel\` to change its level.`
-          )
-        ]
+        embeds: [simpleEmbed('ADMIN ROLE ALREADY EXISTS', `Role **${role.name}** already exists. Use \`/admin setrolelevel\`.`)]
       });
-
       return true;
     }
 
@@ -151,18 +137,12 @@ async function handle(interaction) {
     ]);
 
     await interaction.reply({
-      embeds: [
-        simpleEmbed(
-          'ADMIN ROLE ADDED',
-          `Role: **${role.name}**\nRole ID: \`${role.id}\`\nPermission Level: \`${level}\``
-        )
-      ]
+      embeds: [simpleEmbed('ADMIN ROLE ADDED', `Role: **${role.name}**\nRole ID: \`${role.id}\`\nPermission Level: \`${level}\``)]
     });
 
     return true;
   }
 
-  /* SET ROLE LEVEL */
   if (sub === 'setrolelevel') {
     if (!(await requireOwner(interaction))) return true;
 
@@ -174,14 +154,8 @@ async function handle(interaction) {
 
     if (!rowNum) {
       await interaction.reply({
-        embeds: [
-          simpleEmbed(
-            'ADMIN ROLE NOT FOUND',
-            `Role **${role.name}** is not listed yet.\nUse \`/admin addrole\` first.`
-          )
-        ]
+        embeds: [simpleEmbed('ADMIN ROLE NOT FOUND', `Role **${role.name}** is not listed. Use \`/admin addrole\` first.`)]
       });
-
       return true;
     }
 
@@ -194,88 +168,127 @@ async function handle(interaction) {
     ]);
 
     await interaction.reply({
-      embeds: [
-        simpleEmbed(
-          'ADMIN ROLE LEVEL UPDATED',
-          `Role: **${role.name}**\nRole ID: \`${role.id}\`\nNew Permission Level: \`${level}\``
-        )
-      ]
+      embeds: [simpleEmbed('ADMIN ROLE LEVEL UPDATED', `Role: **${role.name}**\nRole ID: \`${role.id}\`\nNew Level: \`${level}\``)]
     });
 
     return true;
   }
 
-  /* ROLES */
   if (sub === 'roles') {
     if (!(await requireLevel(interaction, 1))) return true;
 
     const rows = await getRows(ADMIN_ROLES_RANGE);
-
-    await interaction.reply({
-      embeds: [adminRolesEmbed(rows)]
-    });
-
+    await interaction.reply({ embeds: [adminRolesEmbed(rows)] });
     return true;
   }
 
-  /* MY PERMISSION */
   if (sub === 'mypermission') {
     const member = await interaction.guild.members.fetch(interaction.user.id);
     const level = await getPermissionLevel(member);
 
     await interaction.reply({
-      embeds: [
-        simpleEmbed(
-          'YOUR PERMISSION LEVEL',
-          `User: **${interaction.user.tag}**\nUser ID: \`${interaction.user.id}\`\nPermission Level: \`${level}\``
-        )
-      ]
+      embeds: [simpleEmbed('YOUR PERMISSION LEVEL', `User: **${interaction.user.tag}**\nUser ID: \`${interaction.user.id}\`\nPermission Level: \`${level}\``)]
     });
 
     return true;
   }
 
-  /* OVERRIDE ON */
   if (sub === 'override_on') {
     if (!(await requireOwner(interaction))) return true;
-
     process.env.OVERRIDE_MODE = 'yes';
 
     await interaction.reply({
       embeds: [simpleEmbed('OVERRIDE ENABLED', 'Only the owner can use commands.')]
     });
-
     return true;
   }
 
-  /* OVERRIDE OFF */
   if (sub === 'override_off') {
     if (!(await requireOwner(interaction))) return true;
-
     process.env.OVERRIDE_MODE = 'no';
 
     await interaction.reply({
       embeds: [simpleEmbed('OVERRIDE DISABLED', 'All users can use commands normally.')]
     });
+    return true;
+  }
+
+  if (sub === 'maintenance_on') {
+    if (!(await requireOwner(interaction))) return true;
+    process.env.MAINTENANCE_MODE = 'yes';
+
+    await interaction.reply({
+      embeds: [simpleEmbed('MAINTENANCE MODE ENABLED', 'Non-owner commands are temporarily disabled.')]
+    });
+    return true;
+  }
+
+  if (sub === 'maintenance_off') {
+    if (!(await requireOwner(interaction))) return true;
+    process.env.MAINTENANCE_MODE = 'no';
+
+    await interaction.reply({
+      embeds: [simpleEmbed('MAINTENANCE MODE DISABLED', 'Commands are available again.')]
+    });
+    return true;
+  }
+
+  if (sub === 'panic_on') {
+    if (!(await requireOwner(interaction))) return true;
+    process.env.PANIC_LOCKDOWN = 'yes';
+
+    await interaction.reply({
+      embeds: [simpleEmbed('PANIC LOCKDOWN ENABLED', 'Only the owner can use commands. This is the strictest lock mode.')]
+    });
+    return true;
+  }
+
+  if (sub === 'panic_off') {
+    if (!(await requireOwner(interaction))) return true;
+    process.env.PANIC_LOCKDOWN = 'no';
+
+    await interaction.reply({
+      embeds: [simpleEmbed('PANIC LOCKDOWN DISABLED', 'Panic lockdown has been lifted.')]
+    });
+    return true;
+  }
+
+  if (sub === 'restart') {
+    if (!(await requireOwner(interaction))) return true;
+
+    await interaction.reply({
+      embeds: [simpleEmbed('RESTART INITIATED', 'The bot is restarting safely.')]
+    });
+
+    setTimeout(() => {
+      process.exit(0);
+    }, 1000);
 
     return true;
   }
 
-  /* SET OWNER */
+  if (sub === 'shutdown') {
+    if (!(await requireOwner(interaction))) return true;
+
+    await interaction.reply({
+      embeds: [simpleEmbed('SHUTDOWN INITIATED', 'The bot is shutting down safely. Railway may restart it depending on your deployment settings.')]
+    });
+
+    setTimeout(() => {
+      process.exit(0);
+    }, 1000);
+
+    return true;
+  }
+
   if (sub === 'set_owner') {
     if (!(await requireOwner(interaction))) return true;
 
     const user = interaction.options.getUser('user');
-
     process.env.OWNER_DISCORD_ID = user.id;
 
     await interaction.reply({
-      embeds: [
-        simpleEmbed(
-          'OWNER UPDATED',
-          `New owner: **${user.tag}**\nUser ID: \`${user.id}\`\n\nThis only lasts until Railway restarts.`
-        )
-      ]
+      embeds: [simpleEmbed('OWNER UPDATED', `New owner: **${user.tag}**\nUser ID: \`${user.id}\`\n\nThis only lasts until Railway restarts.`)]
     });
 
     return true;

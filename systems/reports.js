@@ -5,6 +5,7 @@ const {
 
 const { getRows, appendRow, updateRow } = require('../utils/sheets');
 const { REPORTS_RANGE } = require('../config');
+const { requireLevel } = require('../utils/permissions');
 
 /* ---------------- HELPERS ---------------- */
 
@@ -239,7 +240,7 @@ async function handle(interaction) {
   const sub = interaction.options.getSubcommand();
   const rows = await getRows(REPORTS_RANGE);
 
-  /* SUBMIT */
+  /* SUBMIT - LEVEL 0 */
   if (sub === 'submit') {
     const reportType = interaction.options.getString('type');
     const details = interaction.options.getString('details');
@@ -266,8 +267,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* LIST */
+  /* LIST - LEVEL 1 */
   if (sub === 'list') {
+    if (!(await requireLevel(interaction, 1))) return true;
+
     await interaction.reply({
       embeds: [reportListEmbed(rows)]
     });
@@ -275,8 +278,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* VIEW */
+  /* VIEW - LEVEL 1 */
   if (sub === 'view') {
+    if (!(await requireLevel(interaction, 1))) return true;
+
     const caseId = interaction.options.getString('caseid');
     const rowNum = findReportRowByCaseId(rows, caseId);
 
@@ -294,8 +299,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* ASSIGN */
+  /* ASSIGN - LEVEL 2 */
   if (sub === 'assign') {
+    if (!(await requireLevel(interaction, 2))) return true;
+
     const caseId = interaction.options.getString('caseid');
     const staff = interaction.options.getUser('staff');
     const rowNum = findReportRowByCaseId(rows, caseId);
@@ -335,8 +342,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* CLOSE */
+  /* CLOSE - LEVEL 3 */
   if (sub === 'close') {
+    if (!(await requireLevel(interaction, 3))) return true;
+
     const caseId = interaction.options.getString('caseid');
     const result = interaction.options.getString('result');
     const rowNum = findReportRowByCaseId(rows, caseId);
@@ -376,7 +385,7 @@ async function handle(interaction) {
     return true;
   }
 
-  /* HISTORY */
+  /* HISTORY - LEVEL 0 */
   if (sub === 'history') {
     const targetUser = interaction.options.getUser('user');
 
@@ -387,8 +396,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* REOPEN */
+  /* REOPEN - LEVEL 3 */
   if (sub === 'reopen') {
+    if (!(await requireLevel(interaction, 3))) return true;
+
     const caseId = interaction.options.getString('caseid');
     const rowNum = findReportRowByCaseId(rows, caseId);
 

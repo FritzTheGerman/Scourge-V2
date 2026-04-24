@@ -32,16 +32,17 @@ client.on('interactionCreate', async interaction => {
       !interaction.isModalSubmit()
     ) return;
 
-    /* ---------- OVERRIDE ---------- */
-    const blocked = await checkOverride(interaction);
-    if (blocked) return;
-
-    /* ---------- LOGGING ---------- */
     if (interaction.isChatInputCommand()) {
-      await logCommand(interaction);
+      const blocked = await checkOverride(interaction);
+
+      if (blocked) {
+        await logCommand(interaction, 'Blocked by Override Mode');
+        return;
+      }
+
+      await logCommand(interaction, 'Allowed');
     }
 
-    /* ---------- SYSTEMS ---------- */
     if (await personnel.handle(interaction)) return;
     if (await moderation.handle(interaction)) return;
     if (await events.handle(interaction)) return;
@@ -50,6 +51,10 @@ client.on('interactionCreate', async interaction => {
 
   } catch (error) {
     console.error(error);
+
+    if (interaction.isChatInputCommand()) {
+      await logCommand(interaction, 'Error').catch(() => {});
+    }
 
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp({
@@ -64,7 +69,6 @@ client.on('interactionCreate', async interaction => {
 });
 
 async function start() {
-
   const commands = [
     ...personnel.commands,
     ...moderation.commands,

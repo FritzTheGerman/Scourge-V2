@@ -6,8 +6,7 @@ const {
 
 const { getRows, appendRow, updateRow } = require('../utils/sheets');
 const { PERSONNEL_RANGE, RANK_HISTORY_RANGE } = require('../config');
-
-/* ---------------- HELPERS ---------------- */
+const { requireLevel } = require('../utils/permissions');
 
 function formatId(id) {
   return String(id).padStart(4, '0');
@@ -54,8 +53,6 @@ async function applyRankRole(guild, userId, oldRankName, newRole) {
   }
 }
 
-/* ---------------- EMBEDS ---------------- */
-
 function rankChangeEmbed(actionType, targetUser, caseId, oldRank, newRank, reason, moderator, roleApplied) {
   return new EmbedBuilder()
     .setColor(0x990000)
@@ -76,35 +73,20 @@ function rankChangeEmbed(actionType, targetUser, caseId, oldRank, newRank, reaso
 }
 
 function rankHistoryEmbed(targetUser, rows) {
-  const userRows = rows
-    .slice(1)
-    .filter(row => row[2] === targetUser.id);
+  const userRows = rows.slice(1).filter(row => row[2] === targetUser.id);
 
   const description = userRows.length
-    ? userRows
-        .slice(-10)
-        .reverse()
-        .map(row => {
-          const caseId = formatId(row[0] || '0');
-          const actionType = row[3] || 'Unknown';
-          const oldRank = row[4] || 'Unknown';
-          const newRank = row[5] || 'Unknown';
-          const reason = row[6] || 'No reason provided';
-          const moderator = row[7] || 'Unknown';
-          const moderatorId = row[8] || 'Unknown';
-          const timestamp = row[9] || 'Unknown';
-
-          return (
-            `**Case ${caseId}** • \`${actionType}\`\n` +
-            `Old Rank: \`${oldRank}\`\n` +
-            `New Rank: \`${newRank}\`\n` +
-            `Reason: \`${reason}\`\n` +
-            `By: \`${moderator}\`\n` +
-            `Moderator ID: \`${moderatorId}\`\n` +
-            `Time: \`${timestamp}\``
-          );
-        })
-        .join('\n\n')
+    ? userRows.slice(-10).reverse().map(row => {
+        return (
+          `**Case ${formatId(row[0] || '0')}** • \`${row[3] || 'Unknown'}\`\n` +
+          `Old Rank: \`${row[4] || 'Unknown'}\`\n` +
+          `New Rank: \`${row[5] || 'Unknown'}\`\n` +
+          `Reason: \`${row[6] || 'No reason provided'}\`\n` +
+          `By: \`${row[7] || 'Unknown'}\`\n` +
+          `Moderator ID: \`${row[8] || 'Unknown'}\`\n` +
+          `Time: \`${row[9] || 'Unknown'}\``
+        );
+      }).join('\n\n')
     : 'No rank history found for this user.';
 
   return new EmbedBuilder()
@@ -123,23 +105,14 @@ function recentRankLogEmbed(title, rows, filterType) {
     .reverse();
 
   const description = data.length
-    ? data
-        .map(row => {
-          const caseId = formatId(row[0] || '0');
-          const target = row[1] || 'Unknown';
-          const oldRank = row[4] || 'Unknown';
-          const newRank = row[5] || 'Unknown';
-          const moderator = row[7] || 'Unknown';
-          const moderatorId = row[8] || 'Unknown';
-
-          return (
-            `**Case ${caseId}** • ${target}\n` +
-            `\`${oldRank}\` → \`${newRank}\`\n` +
-            `By: \`${moderator}\`\n` +
-            `Moderator ID: \`${moderatorId}\``
-          );
-        })
-        .join('\n\n')
+    ? data.map(row => {
+        return (
+          `**Case ${formatId(row[0] || '0')}** • ${row[1] || 'Unknown'}\n` +
+          `\`${row[4] || 'Unknown'}\` → \`${row[5] || 'Unknown'}\`\n` +
+          `By: \`${row[7] || 'Unknown'}\`\n` +
+          `Moderator ID: \`${row[8] || 'Unknown'}\``
+        );
+      }).join('\n\n')
     : `No ${filterType.toLowerCase()} records found.`;
 
   return new EmbedBuilder()
@@ -168,77 +141,35 @@ function whoPromotedEmbed(targetUser, row) {
     .setTimestamp();
 }
 
-/* ---------------- COMMANDS ---------------- */
-
 const commands = [
   new SlashCommandBuilder()
     .setName('promote')
     .setDescription('promote a user')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-    .addUserOption(o =>
-      o.setName('user')
-        .setDescription('target user')
-        .setRequired(true)
-    )
-    .addRoleOption(o =>
-      o.setName('new_rank')
-        .setDescription('new rank role')
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('reason')
-        .setDescription('reason')
-        .setRequired(true)
-    ),
+    .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+    .addRoleOption(o => o.setName('new_rank').setDescription('new rank role').setRequired(true))
+    .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('demote')
     .setDescription('demote a user')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-    .addUserOption(o =>
-      o.setName('user')
-        .setDescription('target user')
-        .setRequired(true)
-    )
-    .addRoleOption(o =>
-      o.setName('new_rank')
-        .setDescription('new rank role')
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('reason')
-        .setDescription('reason')
-        .setRequired(true)
-    ),
+    .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+    .addRoleOption(o => o.setName('new_rank').setDescription('new rank role').setRequired(true))
+    .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('setrank')
     .setDescription('directly set a user rank')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-    .addUserOption(o =>
-      o.setName('user')
-        .setDescription('target user')
-        .setRequired(true)
-    )
-    .addRoleOption(o =>
-      o.setName('new_rank')
-        .setDescription('new rank role')
-        .setRequired(true)
-    )
-    .addStringOption(o =>
-      o.setName('reason')
-        .setDescription('reason')
-        .setRequired(true)
-    ),
+    .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
+    .addRoleOption(o => o.setName('new_rank').setDescription('new rank role').setRequired(true))
+    .addStringOption(o => o.setName('reason').setDescription('reason').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('rankhistory')
     .setDescription('show rank history for a user')
-    .addUserOption(o =>
-      o.setName('user')
-        .setDescription('target user')
-        .setRequired(true)
-    ),
+    .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('promotionlog')
@@ -251,24 +182,20 @@ const commands = [
   new SlashCommandBuilder()
     .setName('who_promoted')
     .setDescription('show who last changed a user rank')
-    .addUserOption(o =>
-      o.setName('user')
-        .setDescription('target user')
-        .setRequired(true)
-    )
+    .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
 ].map(c => c.toJSON());
-
-/* ---------------- HANDLER ---------------- */
 
 async function handle(interaction) {
   if (!interaction.isChatInputCommand()) return false;
 
-  /* PROMOTE / DEMOTE / SETRANK */
   if (
     interaction.commandName === 'promote' ||
     interaction.commandName === 'demote' ||
     interaction.commandName === 'setrank'
   ) {
+    const required = interaction.commandName === 'setrank' ? 5 : 4;
+    if (!(await requireLevel(interaction, required))) return true;
+
     const targetUser = interaction.options.getUser('user');
     const newRankRole = interaction.options.getRole('new_rank');
     const reason = interaction.options.getString('reason');
@@ -351,8 +278,9 @@ async function handle(interaction) {
     return true;
   }
 
-  /* RANK HISTORY */
   if (interaction.commandName === 'rankhistory') {
+    if (!(await requireLevel(interaction, 5))) return true;
+
     const targetUser = interaction.options.getUser('user');
     const rows = await getRows(RANK_HISTORY_RANGE);
 
@@ -363,8 +291,9 @@ async function handle(interaction) {
     return true;
   }
 
-  /* PROMOTION LOG */
   if (interaction.commandName === 'promotionlog') {
+    if (!(await requireLevel(interaction, 5))) return true;
+
     const rows = await getRows(RANK_HISTORY_RANGE);
 
     await interaction.reply({
@@ -374,8 +303,9 @@ async function handle(interaction) {
     return true;
   }
 
-  /* DEMOTION LOG */
   if (interaction.commandName === 'demotionlog') {
+    if (!(await requireLevel(interaction, 5))) return true;
+
     const rows = await getRows(RANK_HISTORY_RANGE);
 
     await interaction.reply({
@@ -385,14 +315,13 @@ async function handle(interaction) {
     return true;
   }
 
-  /* WHO PROMOTED */
   if (interaction.commandName === 'who_promoted') {
+    if (!(await requireLevel(interaction, 5))) return true;
+
     const targetUser = interaction.options.getUser('user');
     const rows = await getRows(RANK_HISTORY_RANGE);
 
-    const userRows = rows
-      .slice(1)
-      .filter(row => row[2] === targetUser.id);
+    const userRows = rows.slice(1).filter(row => row[2] === targetUser.id);
 
     if (!userRows.length) {
       await interaction.reply({

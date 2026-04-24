@@ -4,5 +4,5 @@ module.exports = {
   EVENTS_RANGE: 'Events!A:K',
   REPORTS_RANGE: 'Reports!A:K',
   RANK_HISTORY_RANGE: 'Rank History!A:J',
-  COMMAND_LOGS_RANGE: 'Command Logs!A:H'
+  COMMAND_LOGS_RANGE: 'Command Logs!A:J'
 };

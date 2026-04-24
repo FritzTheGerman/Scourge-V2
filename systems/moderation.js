@@ -6,8 +6,7 @@ const {
 
 const { getRows, appendRow } = require('../utils/sheets');
 const { PUNISHMENTS_RANGE } = require('../config');
-
-/* ---------------- HELPERS ---------------- */
+const { requireLevel } = require('../utils/permissions');
 
 function formatId(id) {
   return String(id).padStart(4, '0');
@@ -24,15 +23,11 @@ function getNextCaseId(rows) {
   return ids.length ? Math.max(...ids) + 1 : 1;
 }
 
-/* ---------------- EMBEDS ---------------- */
-
 function warnEmbed(targetUser, caseId, reason, moderator) {
   return new EmbedBuilder()
     .setColor(0xAA0000)
     .setTitle('DISCIPLINARY ACTION LOGGED')
-    .setDescription(
-      `A warning has been recorded in the Empire Database for **${targetUser.tag}**.`
-    )
+    .setDescription(`A warning has been recorded in the Empire Database for **${targetUser.tag}**.`)
     .addFields(
       { name: 'Case ID', value: `\`${formatId(caseId)}\`` },
       { name: 'Action Type', value: '`Warn`' },
@@ -45,29 +40,17 @@ function warnEmbed(targetUser, caseId, reason, moderator) {
 }
 
 function punishmentsEmbed(targetUser, rows) {
-  const userRows = rows
-    .slice(1)
-    .filter(row => row[2] === targetUser.id);
+  const userRows = rows.slice(1).filter(row => row[2] === targetUser.id);
 
   const description = userRows.length
-    ? userRows
-        .slice(-10)
-        .reverse()
-        .map(row => {
-          const caseId = formatId(row[0] || '0');
-          const actionType = row[3] || 'Unknown';
-          const reason = row[4] || 'No reason provided';
-          const moderator = row[5] || 'Unknown';
-          const timestamp = row[7] || 'Unknown';
-
-          return (
-            `**Case ${caseId}** • \`${actionType}\`\n` +
-            `Reason: \`${reason}\`\n` +
-            `Moderator: \`${moderator}\`\n` +
-            `Time: \`${timestamp}\``
-          );
-        })
-        .join('\n\n')
+    ? userRows.slice(-10).reverse().map(row => {
+        return (
+          `**Case ${formatId(row[0] || '0')}** • \`${row[3] || 'Unknown'}\`\n` +
+          `Reason: \`${row[4] || 'No reason provided'}\`\n` +
+          `Moderator: \`${row[5] || 'Unknown'}\`\n` +
+          `Time: \`${row[7] || 'Unknown'}\``
+        );
+      }).join('\n\n')
     : 'No punishments found for this user.';
 
   return new EmbedBuilder()
@@ -77,8 +60,6 @@ function punishmentsEmbed(targetUser, rows) {
     .setFooter({ text: 'Empire Moderation System' })
     .setTimestamp();
 }
-
-/* ---------------- COMMANDS ---------------- */
 
 const commands = [
   new SlashCommandBuilder()
@@ -106,13 +87,12 @@ const commands = [
     )
 ].map(c => c.toJSON());
 
-/* ---------------- HANDLER ---------------- */
-
 async function handle(interaction) {
   if (!interaction.isChatInputCommand()) return false;
 
-  /* WARN */
   if (interaction.commandName === 'warn') {
+    if (!(await requireLevel(interaction, 2))) return true;
+
     const targetUser = interaction.options.getUser('user');
     const reason = interaction.options.getString('reason');
 
@@ -137,8 +117,9 @@ async function handle(interaction) {
     return true;
   }
 
-  /* PUNISHMENTS */
   if (interaction.commandName === 'punishments') {
+    if (!(await requireLevel(interaction, 2))) return true;
+
     const targetUser = interaction.options.getUser('user');
     const rows = await getRows(PUNISHMENTS_RANGE);
 

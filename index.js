@@ -4,7 +4,8 @@ const {
   Client,
   GatewayIntentBits,
   REST,
-  Routes
+  Routes,
+  ActivityType
 } = require('discord.js');
 
 const { checkOverride } = require('./utils/override');
@@ -16,6 +17,7 @@ const events = require('./systems/events');
 const reports = require('./systems/reports');
 const ranks = require('./systems/ranks');
 const admin = require('./systems/admin');
+const info = require('./systems/info');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
@@ -23,6 +25,16 @@ const client = new Client({
 
 client.once('ready', () => {
   console.log('BOT ONLINE');
+
+  client.user.setPresence({
+    activities: [
+      {
+        name: `${info.BOT_VERSION} • Created by ${info.BOT_CREATOR} • /help`,
+        type: ActivityType.Watching
+      }
+    ],
+    status: 'online'
+  });
 });
 
 async function safeLogCommand(interaction, result) {
@@ -54,6 +66,7 @@ client.on('interactionCreate', async interaction => {
       await safeLogCommand(interaction, 'Allowed');
     }
 
+    if (await info.handle(interaction)) return;
     if (await personnel.handle(interaction)) return;
     if (await moderation.handle(interaction)) return;
     if (await events.handle(interaction)) return;
@@ -86,6 +99,7 @@ client.on('interactionCreate', async interaction => {
 
 async function start() {
   const commands = [
+    ...info.commands,
     ...personnel.commands,
     ...moderation.commands,
     ...events.commands,

@@ -7,6 +7,9 @@ const {
 const { getRows, appendRow, updateRow } = require('../utils/sheets');
 const { PERSONNEL_RANGE, RANK_HISTORY_RANGE } = require('../config');
 const { requireLevel } = require('../utils/permissions');
+const { getCSTTime } = require('../utils/time');
+
+/* ---------------- HELPERS ---------------- */
 
 function formatId(id) {
   return String(id).padStart(4, '0');
@@ -52,6 +55,8 @@ async function applyRankRole(guild, userId, oldRankName, newRole) {
     return false;
   }
 }
+
+/* ---------------- EMBEDS ---------------- */
 
 function rankChangeEmbed(actionType, targetUser, caseId, oldRank, newRank, reason, moderator, roleApplied) {
   return new EmbedBuilder()
@@ -141,6 +146,8 @@ function whoPromotedEmbed(targetUser, row) {
     .setTimestamp();
 }
 
+/* ---------------- COMMANDS ---------------- */
+
 const commands = [
   new SlashCommandBuilder()
     .setName('promote')
@@ -184,6 +191,8 @@ const commands = [
     .setDescription('show who last changed a user rank')
     .addUserOption(o => o.setName('user').setDescription('target user').setRequired(true))
 ].map(c => c.toJSON());
+
+/* ---------------- HANDLER ---------------- */
 
 async function handle(interaction) {
   if (!interaction.isChatInputCommand()) return false;
@@ -237,14 +246,15 @@ async function handle(interaction) {
       newRankRole
     );
 
-    await updateRow(`A${rowNum}:G${rowNum}`, [
+    await updateRow(`A${rowNum}:H${rowNum}`, [
       personnelRow[0] || '',
       personnelRow[1] || '',
       personnelRow[2] || '',
       newRankRole.name,
       personnelRow[4] || '',
-      new Date().toISOString(),
-      personnelRow[6] || 'Active'
+      personnelRow[5] || '',
+      getCSTTime(),
+      personnelRow[7] || 'Active'
     ]);
 
     await appendRow(RANK_HISTORY_RANGE, [
@@ -257,7 +267,7 @@ async function handle(interaction) {
       reason,
       interaction.user.tag,
       interaction.user.id,
-      new Date().toISOString()
+      getCSTTime()
     ]);
 
     await interaction.reply({

@@ -1,16 +1,17 @@
 # Scourge Bot
 
-A full-featured Discord management bot designed for structured organizations.
+A modular, production-ready Discord management bot built for structured organizations.
 
 --------------------------------------------------
 
 CORE FEATURES
 
-- Verification & personnel tracking
-- Rank management (promotions, demotions, logs)
-- Moderation system (warnings + history)
+- Verification & personnel database
+- Rank system (promote, demote, set, history)
+- Moderation system (warnings + tracking)
 - Event management system
-- Report / case system
+- Report / case management system
+- Dynamic admin role system (custom permission levels)
 - Full command logging (Google Sheets)
 - Override mode (owner-only control)
 
@@ -36,73 +37,111 @@ OWNER_DISCORD_ID=
 GOOGLE SHEETS STRUCTURE
 
 Personnel
-A: ID Number
-B: Discord Username
-C: Discord ID
-D: Discord Role
-E: Roblox Username
-F: Last Updated
-G: Enlistment Status
+A: ID Number  
+B: Discord Username  
+C: Discord ID  
+D: Discord Role  
+E: Roblox Username  
+F: Last Updated  
+G: Enlistment Status  
 
 Punishments
-A: Case ID
-B: Target Username
-C: Target ID
-D: Action Type
-E: Reason
-F: Moderator Username
-G: Moderator ID
-H: Timestamp
+A: Case ID  
+B: Target Username  
+C: Target ID  
+D: Action Type  
+E: Reason  
+F: Moderator Username  
+G: Moderator ID  
+H: Timestamp  
 
 Rank History
-A: Case ID
-B: Username
-C: ID
-D: Action Type
-E: Old Rank
-F: New Rank
-G: Reason
-H: Moderator Username
-I: Moderator ID
-J: Timestamp
+A: Case ID  
+B: Username  
+C: ID  
+D: Action Type  
+E: Old Rank  
+F: New Rank  
+G: Reason  
+H: Moderator Username  
+I: Moderator ID  
+J: Timestamp  
 
 Events
-A: Event ID
-B: Event Name
-C: Host Username
-D: Host ID
-E: Event Time
-F: Status
-G: Attendance Count
-H: Attendee IDs
-I: Created By
-J: Created At
-K: Closed At
+A: Event ID  
+B: Event Name  
+C: Host Username  
+D: Host ID  
+E: Event Time  
+F: Status  
+G: Attendance Count  
+H: Attendee IDs  
+I: Created By  
+J: Created At  
+K: Closed At  
 
 Reports
-A: Case ID
-B: Report Type
-C: Details
-D: Submitted By Username
-E: Submitted By ID
-F: Assigned Staff Username
-G: Assigned Staff ID
-H: Status
-I: Result
-J: Created At
-K: Closed At
+A: Case ID  
+B: Report Type  
+C: Details  
+D: Submitted By Username  
+E: Submitted By ID  
+F: Assigned Staff Username  
+G: Assigned Staff ID  
+H: Status  
+I: Result  
+J: Created At  
+K: Closed At  
 
 Command Logs
-A: Log ID
-B: User
-C: Role
-D: Command
-E: Options
-F: Channel ID
-G: Guild ID
-H: Override Mode
-I: Result
-J: Timestamp
+A: Log ID  
+B: User (username + ID)  
+C: Role (role name + ID)  
+D: Command  
+E: Options (fully formatted with mentions)  
+F: Channel ID  
+G: Guild ID  
+H: Override Mode  
+I: Result (Allowed / Blocked / Error / Unhandled)  
+J: Timestamp  
+
+Admin Roles
+A: Role Name  
+B: Role ID  
+C: Permission Level  
+D: Added By  
+E: Added At  
+
+--------------------------------------------------
+
+PERMISSION SYSTEM
+
+Permission levels are dynamic and assigned using:
+
+/admin addrole
+
+Level Structure:
+
+Level 0 — Public  
+Basic user commands
+
+Level 1 — Viewer  
+View logs, reports, attendance
+
+Level 2 — Staff  
+Moderation + report assignment
+
+Level 3 — Senior Staff  
+Event control + report resolution
+
+Level 4 — Command Staff  
+Promotions + advanced event control
+
+Level 5 — High Command  
+Rank logs + full rank control
+
+Level 999 — Owner  
+Full control of bot systems
 
 --------------------------------------------------
 
@@ -110,197 +149,146 @@ COMMANDS
 
 PERSONNEL SYSTEM
 
-/verify
-- roblox_username (string)
-Verify yourself into the system
+/verify  
+- roblox_username  
+Verify yourself
 
-/update
-- roblox_username (string)
+/update  
+- roblox_username  
 Update your record
 
-/profile
-- user (user)
-View a user's profile
+/profile  
+- user  
+View profile
 
 --------------------------------------------------
 
-MODERATION SYSTEM
+MODERATION SYSTEM (Level 2)
 
-/warn
-- user (user)
-- reason (string)
-Warn a user
+/warn  
+- user  
+- reason  
 
-/punishments
-- user (user)
-View punishment history
+/punishments  
+- user  
 
 --------------------------------------------------
 
 RANK SYSTEM
 
-/promote
-- user (user)
-- new_rank (role)
-- reason (string)
-Promote a user
+Level 4:
+/promote  
+/demote  
 
-/demote
-- user (user)
-- new_rank (role)
-- reason (string)
-Demote a user
-
-/setrank
-- user (user)
-- new_rank (role)
-- reason (string)
-Force set rank
-
-/rankhistory
-- user (user)
-View rank history
-
-/promotionlog
-Shows recent promotions
-
-/demotionlog
-Shows recent demotions
-
-/who_promoted
-- user (user)
-See last rank change
+Level 5:
+/setrank  
+/rankhistory  
+/promotionlog  
+/demotionlog  
+/who_promoted  
 
 --------------------------------------------------
 
 EVENT SYSTEM
 
-/event create
-- name (string)
-- time (string)
-- host (user)
+Level 3:
+/event create  
+/event start  
+/event end  
+/event attendee  
 
-(event is created)
+Level 4:
+/event host  
+/event delete  
 
-/event start
-- name (string)
+Level 1:
+/event attendance  
+/event report  
 
-(event becomes active)
-
-/event end
-- name (string)
-
-(event closes)
-
-/event host
-- event (string)
-- user (user)
-
-(change host)
-
-/event attendee
-- event (string)
-- user (user)
-
-(add attendee)
-
-/event attendance
-- event (string)
-
-(view attendance)
-
-/event history
-- user (user)
-
-(user event history)
-
-/event leaderboard
-
-(top hosts)
-
-/event report
-- event (string)
-
-(full event report)
-
-/event delete
-- event (string)
-
-(delete record)
+Level 0:
+/event history  
+/event leaderboard  
 
 --------------------------------------------------
 
 REPORT SYSTEM
 
-/report submit
-- type (ranking / general / moderation / event)
-- details (string)
+Level 0:
+/report submit  
+/report history  
 
-(report created)
+Level 1:
+/report list  
+/report view  
 
-/report list
+Level 2:
+/report assign  
 
-(list reports)
-
-/report view
-- caseid (string)
-
-(view report)
-
-/report assign
-- caseid (string)
-- staff (user)
-
-(assign staff)
-
-/report close
-- caseid (string)
-- result (string)
-
-(close report)
-
-/report reopen
-- caseid (string)
-
-(reopen report)
-
-/report history
-- user (user)
-
-(user report history)
+Level 3:
+/report close  
+/report reopen  
 
 --------------------------------------------------
 
-OVERRIDE MODE
+ADMIN SYSTEM
 
-Set:
+Owner Only:
+/admin addrole  
+/admin setrolelevel  
+/admin override_on  
+/admin override_off  
+/admin set_owner  
 
-OVERRIDE_MODE=yes
-
-Only OWNER_DISCORD_ID can run commands
-All other attempts are blocked and logged
+All Admins:
+/admin roles  
+/admin mypermission  
 
 --------------------------------------------------
 
 LOGGING SYSTEM
 
-Logs every command:
+Logs EVERY command automatically
+
+Includes:
 - User (name + ID)
 - Role (name + ID)
 - Command
-- Options
+- Options (fully expanded mentions)
 - Channel
 - Guild
-- Override state
-- Result (Allowed / Blocked / Error)
+- Override status
+- Result (Allowed / Blocked / Error / Unhandled)
 - Timestamp
+
+--------------------------------------------------
+
+OVERRIDE MODE
+
+When enabled:
+
+OVERRIDE_MODE=yes
+
+- Only OWNER_DISCORD_ID can run commands
+- All other users are blocked
+- All attempts are logged
 
 --------------------------------------------------
 
 STATUS
 
-Fully modular
-Production ready
-Expandable
+Fully modular  
+Fully permission controlled  
+Fully logged  
+Production ready  
+
+--------------------------------------------------
+
+FUTURE EXPANSION
+
+- Discord live logging channel
+- Dashboard UI
+- Multi-server support
+- Auto rank hierarchy enforcement
+- Advanced analytics system
 
 --------------------------------------------------

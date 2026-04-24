@@ -6,6 +6,7 @@ const {
 const { getRows, appendRow, updateRow } = require('../utils/sheets');
 const { REPORTS_RANGE } = require('../config');
 const { requireLevel } = require('../utils/permissions');
+const { getCSTTime } = require('../utils/time');
 
 /* ---------------- HELPERS ---------------- */
 
@@ -256,7 +257,7 @@ async function handle(interaction) {
       '',
       'Open',
       '',
-      new Date().toISOString(),
+      getCSTTime(),
       ''
     ]);
 
@@ -370,7 +371,7 @@ async function handle(interaction) {
       'Closed',
       result,
       row[9] || '',
-      new Date().toISOString()
+      getCSTTime()
     ]);
 
     await interaction.reply({

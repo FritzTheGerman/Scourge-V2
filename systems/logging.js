@@ -28,20 +28,46 @@ function formatOptions(interaction) {
   }).join(' | ');
 }
 
-async function logCommand(interaction) {
+function getTopRole(member) {
+  const roles = member.roles.cache
+    .filter(role => role.name !== '@everyone')
+    .sort((a, b) => b.position - a.position);
+
+  return roles.first() || null;
+}
+
+async function logCommand(interaction, result = 'Allowed') {
   if (!interaction.isChatInputCommand()) return;
 
   const rows = await getRows(COMMAND_LOGS_RANGE);
   const logId = getNextLogId(rows);
 
+  let roleFormatted = 'No Role (N/A)';
+
+  try {
+    const member = await interaction.guild.members.fetch(interaction.user.id);
+    const topRole = getTopRole(member);
+
+    if (topRole) {
+      roleFormatted = `${topRole.name} (${topRole.id})`;
+    }
+  } catch (error) {
+    console.error('Logging role fetch failed:', error);
+  }
+
+  const userFormatted = `${interaction.user.tag} (${interaction.user.id})`;
+  const overrideMode = (process.env.OVERRIDE_MODE || 'no').toLowerCase();
+
   await appendRow(COMMAND_LOGS_RANGE, [
     logId,
-    interaction.user.tag,
-    interaction.user.id,
+    userFormatted,
+    roleFormatted,
     `/${interaction.commandName}`,
     formatOptions(interaction),
     interaction.channelId || 'Unknown',
     interaction.guildId || 'Unknown',
+    overrideMode,
+    result,
     new Date().toISOString()
   ]);
 }

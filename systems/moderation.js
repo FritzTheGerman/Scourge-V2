@@ -7,6 +7,9 @@ const {
 const { getRows, appendRow } = require('../utils/sheets');
 const { PUNISHMENTS_RANGE } = require('../config');
 const { requireLevel } = require('../utils/permissions');
+const { getCSTTime } = require('../utils/time');
+
+/* ---------------- HELPERS ---------------- */
 
 function formatId(id) {
   return String(id).padStart(4, '0');
@@ -22,6 +25,8 @@ function getNextCaseId(rows) {
 
   return ids.length ? Math.max(...ids) + 1 : 1;
 }
+
+/* ---------------- EMBEDS ---------------- */
 
 function warnEmbed(targetUser, caseId, reason, moderator) {
   return new EmbedBuilder()
@@ -61,6 +66,8 @@ function punishmentsEmbed(targetUser, rows) {
     .setTimestamp();
 }
 
+/* ---------------- COMMANDS ---------------- */
+
 const commands = [
   new SlashCommandBuilder()
     .setName('warn')
@@ -87,6 +94,8 @@ const commands = [
     )
 ].map(c => c.toJSON());
 
+/* ---------------- HANDLER ---------------- */
+
 async function handle(interaction) {
   if (!interaction.isChatInputCommand()) return false;
 
@@ -107,7 +116,7 @@ async function handle(interaction) {
       reason,
       interaction.user.tag,
       interaction.user.id,
-      new Date().toISOString()
+      getCSTTime()
     ]);
 
     await interaction.reply({

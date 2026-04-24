@@ -14,6 +14,9 @@ const {
   PERSONNEL_RANGE,
   PENDING_VERIFICATIONS_RANGE
 } = require('../config');
+const { getCSTTime } = require('../utils/time');
+
+/* ---------------- HELPERS ---------------- */
 
 function getRank(member) {
   const roles = member.roles.cache
@@ -97,6 +100,8 @@ async function lookupRobloxUser(username) {
   };
 }
 
+/* ---------------- EMBEDS ---------------- */
+
 function pendingVerifyEmbed(robloxUsername, robloxId, code) {
   return new EmbedBuilder()
     .setColor(0x8B0000)
@@ -110,6 +115,24 @@ function pendingVerifyEmbed(robloxUsername, robloxId, code) {
       { name: 'Roblox ID', value: `\`${robloxId}\`` },
       { name: 'Verification Code', value: `\`${code}\`` },
       { name: 'Next Step', value: '`/confirmverify`' }
+    )
+    .setFooter({ text: 'Empire Verification System' })
+    .setTimestamp();
+}
+
+function pendingUpdateEmbed(robloxUsername, robloxId, code) {
+  return new EmbedBuilder()
+    .setColor(0x8B0000)
+    .setTitle('ROBLOX UPDATE VERIFICATION REQUIRED')
+    .setDescription(
+      `A verification code has been created for your Roblox account update.\n\n` +
+      `Put this code in your Roblox **About/Description** section, then run \`/confirmupdate\`.`
+    )
+    .addFields(
+      { name: 'Roblox Username', value: `\`${robloxUsername}\`` },
+      { name: 'Roblox ID', value: `\`${robloxId}\`` },
+      { name: 'Verification Code', value: `\`${code}\`` },
+      { name: 'Next Step', value: '`/confirmupdate`' }
     )
     .setFooter({ text: 'Empire Verification System' })
     .setTimestamp();
@@ -169,6 +192,8 @@ function profileEmbed(row) {
     .setTimestamp();
 }
 
+/* ---------------- BUTTON / MODAL ---------------- */
+
 function updateButton() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -192,6 +217,8 @@ function updateModal() {
   modal.addComponents(new ActionRowBuilder().addComponents(input));
   return modal;
 }
+
+/* ---------------- COMMANDS ---------------- */
 
 const commands = [
   new SlashCommandBuilder()
@@ -217,6 +244,10 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
+    .setName('confirmupdate')
+    .setDescription('confirm your Roblox account update'),
+
+  new SlashCommandBuilder()
     .setName('profile')
     .setDescription('view profile')
     .addUserOption(o =>
@@ -226,11 +257,14 @@ const commands = [
     )
 ].map(c => c.toJSON());
 
+/* ---------------- VERIFICATION FUNCTIONS ---------------- */
+
 async function startVerification(interaction, robloxUsername) {
   const personnelRows = await getRows(PERSONNEL_RANGE);
   const pendingRows = await getRows(PENDING_VERIFICATIONS_RANGE);
 
   const existingPersonnel = findUserRow(personnelRows, interaction.user.id);
+
   if (existingPersonnel) {
     await interaction.reply({
       content: 'You are already verified. Use /update if you need to change your Roblox account.'
@@ -256,7 +290,7 @@ async function startVerification(interaction, robloxUsername) {
     robloxUser.username,
     robloxUser.id,
     code,
-    new Date().toISOString()
+    getCSTTime()
   ];
 
   if (pendingRow) {
@@ -326,7 +360,7 @@ async function confirmVerification(interaction) {
     rank,
     robloxUser.username,
     robloxId,
-    new Date().toISOString(),
+    getCSTTime(),
     'Active'
   ]);
 
@@ -377,7 +411,7 @@ async function updateVerifiedRecord(interaction, robloxUsername) {
     robloxUser.username,
     robloxUser.id,
     code,
-    new Date().toISOString()
+    getCSTTime()
   ];
 
   if (pendingRow) {
@@ -387,7 +421,7 @@ async function updateVerifiedRecord(interaction, robloxUsername) {
   }
 
   await interaction.reply({
-    embeds: [pendingVerifyEmbed(robloxUser.username, robloxUser.id, code)]
+    embeds: [pendingUpdateEmbed(robloxUser.username, robloxUser.id, code)]
   });
 
   return true;
@@ -421,6 +455,13 @@ async function confirmUpdate(interaction) {
 
   const robloxUser = await lookupRobloxUser(robloxUsername);
 
+  if (!robloxUser) {
+    await interaction.reply({
+      content: 'Could not find that Roblox account. Run /update again.'
+    });
+    return true;
+  }
+
   if (!robloxUser.description.includes(code)) {
     await interaction.reply({
       content:
@@ -445,7 +486,7 @@ async function confirmUpdate(interaction) {
     rank,
     robloxUser.username,
     robloxId,
-    new Date().toISOString(),
+    getCSTTime(),
     row[7] || 'Active'
   ]);
 
@@ -465,6 +506,8 @@ async function confirmUpdate(interaction) {
 
   return true;
 }
+
+/* ---------------- HANDLER ---------------- */
 
 async function handle(interaction) {
   if (interaction.isButton()) {
@@ -506,6 +549,7 @@ async function handle(interaction) {
     const rows = await getRows(PERSONNEL_RANGE);
 
     const rowNum = findUserRow(rows, user.id);
+
     if (!rowNum) {
       await interaction.reply('User not found.');
       return true;

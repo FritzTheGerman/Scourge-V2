@@ -1,5 +1,8 @@
 const { getRows, appendRow } = require('../utils/sheets');
 const { COMMAND_LOGS_RANGE } = require('../config');
+const { getCSTTime } = require('../utils/time');
+
+/* ---------------- HELPERS ---------------- */
 
 function getNextLogId(rows) {
   if (rows.length <= 1) return 1;
@@ -56,6 +59,8 @@ function formatOptions(interaction) {
   }).join(' | ');
 }
 
+/* ---------------- MAIN ---------------- */
+
 async function logCommand(interaction, result = 'Allowed') {
   if (!interaction.isChatInputCommand()) return;
 
@@ -88,7 +93,7 @@ async function logCommand(interaction, result = 'Allowed') {
     interaction.guildId || 'Unknown',
     overrideMode,
     result,
-    new Date().toISOString()
+    getCSTTime()
   ]);
 }
 

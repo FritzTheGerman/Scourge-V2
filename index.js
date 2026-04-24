@@ -8,6 +8,7 @@ const {
 } = require('discord.js');
 
 const { checkOverride } = require('./utils/override');
+const { logCommand } = require('./systems/logging');
 
 const personnel = require('./systems/personnel');
 const moderation = require('./systems/moderation');
@@ -19,17 +20,28 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
 });
 
-client.once('ready', async () => {
+client.once('ready', () => {
   console.log('BOT ONLINE');
 });
 
 client.on('interactionCreate', async interaction => {
   try {
-    if (!interaction.isChatInputCommand() && !interaction.isButton() && !interaction.isModalSubmit()) return;
+    if (
+      !interaction.isChatInputCommand() &&
+      !interaction.isButton() &&
+      !interaction.isModalSubmit()
+    ) return;
 
+    /* ---------- OVERRIDE ---------- */
     const blocked = await checkOverride(interaction);
     if (blocked) return;
 
+    /* ---------- LOGGING ---------- */
+    if (interaction.isChatInputCommand()) {
+      await logCommand(interaction);
+    }
+
+    /* ---------- SYSTEMS ---------- */
     if (await personnel.handle(interaction)) return;
     if (await moderation.handle(interaction)) return;
     if (await events.handle(interaction)) return;
@@ -41,17 +53,18 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp({
-        content: 'Something went wrong while processing that action.'
+        content: 'Something went wrong.'
       }).catch(() => {});
     } else {
       await interaction.reply({
-        content: 'Something went wrong while processing that action.'
+        content: 'Something went wrong.'
       }).catch(() => {});
     }
   }
 });
 
 async function start() {
+
   const commands = [
     ...personnel.commands,
     ...moderation.commands,

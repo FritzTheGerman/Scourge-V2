@@ -12,28 +12,48 @@ function getNextLogId(rows) {
   return ids.length ? Math.max(...ids) + 1 : 1;
 }
 
-function formatOptions(interaction) {
-  if (!interaction.options?.data?.length) return 'None';
-
-  return interaction.options.data.map(option => {
-    if (option.options?.length) {
-      const subOptions = option.options
-        .map(sub => `${sub.name}: ${sub.value ?? 'N/A'}`)
-        .join(', ');
-
-      return `${option.name} (${subOptions})`;
-    }
-
-    return `${option.name}: ${option.value ?? 'N/A'}`;
-  }).join(' | ');
-}
-
 function getTopRole(member) {
   const roles = member.roles.cache
     .filter(role => role.name !== '@everyone')
     .sort((a, b) => b.position - a.position);
 
   return roles.first() || null;
+}
+
+function formatOptionValue(option) {
+  if (option.user) {
+    return `${option.user.tag} (${option.user.id})`;
+  }
+
+  if (option.role) {
+    return `${option.role.name} (${option.role.id})`;
+  }
+
+  if (option.channel) {
+    return `${option.channel.name} (${option.channel.id})`;
+  }
+
+  if (option.member?.user) {
+    return `${option.member.user.tag} (${option.member.user.id})`;
+  }
+
+  return option.value ?? 'N/A';
+}
+
+function formatOptions(interaction) {
+  if (!interaction.options?.data?.length) return 'None';
+
+  return interaction.options.data.map(option => {
+    if (option.options?.length) {
+      const subOptions = option.options
+        .map(sub => `${sub.name}: ${formatOptionValue(sub)}`)
+        .join(', ');
+
+      return `${option.name} (${subOptions})`;
+    }
+
+    return `${option.name}: ${formatOptionValue(option)}`;
+  }).join(' | ');
 }
 
 async function logCommand(interaction, result = 'Allowed') {

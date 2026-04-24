@@ -5,6 +5,7 @@ const {
 
 const { getRows, appendRow, updateRow, clearRange } = require('../utils/sheets');
 const { EVENTS_RANGE } = require('../config');
+const { requireLevel } = require('../utils/permissions');
 
 /* ---------------- HELPERS ---------------- */
 
@@ -289,8 +290,10 @@ async function handle(interaction) {
   const sub = interaction.options.getSubcommand();
   const rows = await getRows(EVENTS_RANGE);
 
-  /* CREATE */
+  /* CREATE - LEVEL 3 */
   if (sub === 'create') {
+    if (!(await requireLevel(interaction, 3))) return true;
+
     const name = interaction.options.getString('name');
     const time = interaction.options.getString('time');
     const host = interaction.options.getUser('host');
@@ -325,8 +328,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* START */
+  /* START - LEVEL 3 */
   if (sub === 'start') {
+    if (!(await requireLevel(interaction, 3))) return true;
+
     const name = interaction.options.getString('name');
     const rowNum = findEventRowByName(rows, name);
 
@@ -336,7 +341,6 @@ async function handle(interaction) {
     }
 
     const row = rows[rowNum - 1];
-    row[5] = 'Active';
 
     await updateRow(`Events!A${rowNum}:K${rowNum}`, [
       row[0] || '',
@@ -359,8 +363,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* END */
+  /* END - LEVEL 3 */
   if (sub === 'end') {
+    if (!(await requireLevel(interaction, 3))) return true;
+
     const name = interaction.options.getString('name');
     const rowNum = findEventRowByName(rows, name);
 
@@ -392,8 +398,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* HOST */
+  /* HOST - LEVEL 4 */
   if (sub === 'host') {
+    if (!(await requireLevel(interaction, 4))) return true;
+
     const name = interaction.options.getString('event');
     const host = interaction.options.getUser('user');
     const rowNum = findEventRowByName(rows, name);
@@ -426,8 +434,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* ATTENDEE */
+  /* ATTENDEE - LEVEL 3 */
   if (sub === 'attendee') {
+    if (!(await requireLevel(interaction, 3))) return true;
+
     const name = interaction.options.getString('event');
     const attendee = interaction.options.getUser('user');
     const rowNum = findEventRowByName(rows, name);
@@ -465,8 +475,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* ATTENDANCE */
+  /* ATTENDANCE - LEVEL 1 */
   if (sub === 'attendance') {
+    if (!(await requireLevel(interaction, 1))) return true;
+
     const name = interaction.options.getString('event');
     const rowNum = findEventRowByName(rows, name);
 
@@ -485,7 +497,7 @@ async function handle(interaction) {
     return true;
   }
 
-  /* HISTORY */
+  /* HISTORY - LEVEL 0 */
   if (sub === 'history') {
     const targetUser = interaction.options.getUser('user');
 
@@ -496,7 +508,7 @@ async function handle(interaction) {
     return true;
   }
 
-  /* LEADERBOARD */
+  /* LEADERBOARD - LEVEL 0 */
   if (sub === 'leaderboard') {
     await interaction.reply({
       embeds: [eventLeaderboardEmbed(rows)]
@@ -505,8 +517,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* REPORT */
+  /* REPORT - LEVEL 1 */
   if (sub === 'report') {
+    if (!(await requireLevel(interaction, 1))) return true;
+
     const name = interaction.options.getString('event');
     const rowNum = findEventRowByName(rows, name);
 
@@ -522,8 +536,10 @@ async function handle(interaction) {
     return true;
   }
 
-  /* DELETE */
+  /* DELETE - LEVEL 4 */
   if (sub === 'delete') {
+    if (!(await requireLevel(interaction, 4))) return true;
+
     const name = interaction.options.getString('event');
     const rowNum = findEventRowByName(rows, name);
 

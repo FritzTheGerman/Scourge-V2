@@ -25,6 +25,16 @@ client.once('ready', () => {
   console.log('BOT ONLINE');
 });
 
+async function safeLogCommand(interaction, result) {
+  try {
+    if (interaction.isChatInputCommand()) {
+      await logCommand(interaction, result);
+    }
+  } catch (error) {
+    console.error('Command logging failed:', error);
+  }
+}
+
 client.on('interactionCreate', async interaction => {
   try {
     if (
@@ -37,11 +47,11 @@ client.on('interactionCreate', async interaction => {
       const blocked = await checkOverride(interaction);
 
       if (blocked) {
-        await logCommand(interaction, 'Blocked by Override Mode');
+        await safeLogCommand(interaction, 'Blocked by Override Mode');
         return;
       }
 
-      await logCommand(interaction, 'Allowed');
+      await safeLogCommand(interaction, 'Allowed');
     }
 
     if (await personnel.handle(interaction)) return;
@@ -51,11 +61,15 @@ client.on('interactionCreate', async interaction => {
     if (await ranks.handle(interaction)) return;
     if (await admin.handle(interaction)) return;
 
+    if (interaction.isChatInputCommand()) {
+      await safeLogCommand(interaction, 'Unhandled Command');
+    }
+
   } catch (error) {
     console.error(error);
 
     if (interaction.isChatInputCommand()) {
-      await logCommand(interaction, 'Error').catch(() => {});
+      await safeLogCommand(interaction, 'Error');
     }
 
     if (interaction.replied || interaction.deferred) {

@@ -6,7 +6,7 @@ const {
 
 const { getRows, appendRow, updateRow } = require('../utils/sheets');
 const { PERSONNEL_RANGE, RANK_HISTORY_RANGE } = require('../config');
-const { requireLevel, isOwner } = require('../utils/permissions');
+const { getPermissionLevel, isOwner } = require('../utils/permissions');
 const { getCSTTime } = require('../utils/time');
 
 /* ---------------- HELPERS ---------------- */
@@ -45,11 +45,36 @@ function getNextCaseId(rows) {
   return ids.length ? Math.max(...ids) + 1 : 1;
 }
 
-async function replyRankRuleBlock(interaction, content) {
+function rankErrorEmbed(title, description) {
+  return new EmbedBuilder()
+    .setColor(0x990000)
+    .setTitle(title)
+    .setDescription(description)
+    .setFooter({ text: 'Empire Promotion System' })
+    .setTimestamp();
+}
+
+async function replyRankError(interaction, title, description) {
   await interaction.reply({
-    content,
-    ephemeral: true
+    embeds: [rankErrorEmbed(title, description)]
   });
+}
+
+async function requireRankLevel(interaction, requiredLevel) {
+  const member = await interaction.guild.members.fetch(interaction.user.id);
+  const userLevel = await getPermissionLevel(member);
+
+  if (userLevel < requiredLevel) {
+    await replyRankError(
+      interaction,
+      'PERMISSION DENIED',
+      `You do not have permission to use this command.\nRequired Level: \`${requiredLevel}\`\nYour Level: \`${userLevel}\``
+    );
+
+    return false;
+  }
+
+  return true;
 }
 
 async function validateRankAction(interaction, targetUser, newRankRole, personnelRows, oldRank) {
@@ -62,15 +87,16 @@ async function validateRankAction(interaction, targetUser, newRankRole, personne
   }
 
   if (targetUser.id === interaction.user.id) {
-    await replyRankRuleBlock(interaction, 'You cannot promote or demote yourself.');
+    await replyRankError(interaction, 'RANK ACTION BLOCKED', 'You cannot promote or demote yourself.');
     return false;
   }
 
   const moderatorRowNum = findUserRow(personnelRows, interaction.user.id);
 
   if (!moderatorRowNum) {
-    await replyRankRuleBlock(
+    await replyRankError(
       interaction,
+      'RANK ACTION BLOCKED',
       'Your current rank could not be found in the personnel database, so this rank action cannot be validated.'
     );
     return false;
@@ -81,16 +107,18 @@ async function validateRankAction(interaction, targetUser, newRankRole, personne
   const moderatorRankRole = findRankRole(interaction.guild, moderatorRank);
 
   if (!moderatorRankRole) {
-    await replyRankRuleBlock(
+    await replyRankError(
       interaction,
+      'RANK ACTION BLOCKED',
       `Your current rank \`${moderatorRank}\` could not be matched to a Discord role, so this rank action cannot be validated.`
     );
     return false;
   }
 
   if (isHigherRole(newRankRole, moderatorRankRole)) {
-    await replyRankRuleBlock(
+    await replyRankError(
       interaction,
+      'RANK ACTION BLOCKED',
       `You cannot set someone to \`${newRankRole.name}\` because it is higher than your rank \`${moderatorRankRole.name}\`.`
     );
     return false;
@@ -100,16 +128,18 @@ async function validateRankAction(interaction, targetUser, newRankRole, personne
     const oldRankRole = findRankRole(interaction.guild, oldRank);
 
     if (!oldRankRole) {
-      await replyRankRuleBlock(
+      await replyRankError(
         interaction,
+        'RANK ACTION BLOCKED',
         `That user's current rank \`${oldRank}\` could not be matched to a Discord role, so this demotion cannot be validated.`
       );
       return false;
     }
 
     if (isHigherRole(newRankRole, oldRankRole)) {
-      await replyRankRuleBlock(
+      await replyRankError(
         interaction,
+        'RANK ACTION BLOCKED',
         `You cannot demote someone from \`${oldRankRole.name}\` to \`${newRankRole.name}\` because the new rank is higher than their current rank.`
       );
       return false;
@@ -289,7 +319,7 @@ async function handle(interaction) {
     interaction.commandName === 'setrank'
   ) {
     const required = interaction.commandName === 'setrank' ? 5 : 4;
-    if (!(await requireLevel(interaction, required))) return true;
+    if (!(await requireRankLevel(interaction, required))) return true;
 
     const targetUser = interaction.options.getUser('user');
     const newRankRole = interaction.options.getRole('new_rank');
@@ -297,7 +327,9 @@ async function handle(interaction) {
 
     if (newRankRole.name === '@everyone') {
       await interaction.reply({
-        content: 'You cannot use @everyone as a rank role. Use a real rank role instead.'
+        embeds: [
+          rankErrorEmbed('INVALID RANK ROLE', 'You cannot use @everyone as a rank role. Use a real rank role instead.')
+        ]
       });
       return true;
     }
@@ -307,7 +339,9 @@ async function handle(interaction) {
 
     if (!rowNum) {
       await interaction.reply({
-        content: 'That user is not in the personnel database.'
+        embeds: [
+          rankErrorEmbed('USER NOT FOUND', 'That user is not in the personnel database.')
+        ]
       });
       return true;
     }
@@ -379,7 +413,7 @@ async function handle(interaction) {
   }
 
   if (interaction.commandName === 'rankhistory') {
-    if (!(await requireLevel(interaction, 5))) return true;
+    if (!(await requireRankLevel(interaction, 5))) return true;
 
     const targetUser = interaction.options.getUser('user');
     const rows = await getRows(RANK_HISTORY_RANGE);
@@ -392,7 +426,7 @@ async function handle(interaction) {
   }
 
   if (interaction.commandName === 'promotionlog') {
-    if (!(await requireLevel(interaction, 5))) return true;
+    if (!(await requireRankLevel(interaction, 5))) return true;
 
     const rows = await getRows(RANK_HISTORY_RANGE);
 
@@ -404,7 +438,7 @@ async function handle(interaction) {
   }
 
   if (interaction.commandName === 'demotionlog') {
-    if (!(await requireLevel(interaction, 5))) return true;
+    if (!(await requireRankLevel(interaction, 5))) return true;
 
     const rows = await getRows(RANK_HISTORY_RANGE);
 
@@ -416,7 +450,7 @@ async function handle(interaction) {
   }
 
   if (interaction.commandName === 'who_promoted') {
-    if (!(await requireLevel(interaction, 5))) return true;
+    if (!(await requireRankLevel(interaction, 5))) return true;
 
     const targetUser = interaction.options.getUser('user');
     const rows = await getRows(RANK_HISTORY_RANGE);
@@ -425,7 +459,9 @@ async function handle(interaction) {
 
     if (!userRows.length) {
       await interaction.reply({
-        content: 'No rank history found for that user.'
+        embeds: [
+          rankErrorEmbed('NO RANK HISTORY', 'No rank history found for that user.')
+        ]
       });
       return true;
     }

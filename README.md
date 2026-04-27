@@ -7,7 +7,6 @@ A modular, production-ready Discord management bot built for structured organiza
 CORE FEATURES
 
 - Verification & personnel database
-- Owner verification checks with DM prompts
 - Configurable verified member role
 - Rank system (promote, demote, set, history)
 - Moderation system (warnings + tracking)
@@ -172,13 +171,6 @@ Update your record
 /profile  
 - user  
 View profile
-
-Owner Only:
-/checkverify
-- target: all or user
-- user: required when target is user
-DM unverified users the verification prompt
-Bulk all-user verification DMs are limited to once every 24 hours.
 
 /verifiedrole
 - role

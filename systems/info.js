@@ -30,7 +30,6 @@ function helpEmbed() {
           '`/update roblox_username:<name>`\n' +
           '`/confirmupdate`\n' +
           '`/profile user:@user`\n' +
-          '`/checkverify target:<all|user> user:@user`\n' +
           '`/verifiedrole role:@role`'
       },
       {

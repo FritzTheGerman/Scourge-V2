@@ -20,8 +20,6 @@ const { isOwner } = require('../utils/permissions');
 const { getCSTTime } = require('../utils/time');
 
 const VERIFIED_ROLE_KEY = 'verified_role_id';
-const CHECKVERIFY_ALL_LAST_SENT_KEY = 'checkverify_all_last_sent';
-const CHECKVERIFY_ALL_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 /* ---------------- HELPERS ---------------- */
 
@@ -326,49 +324,6 @@ function verificationSystemEmbed(title, description) {
     .setTimestamp();
 }
 
-async function sendVerificationResponse(interaction, embed) {
-  const payload = { embeds: [embed] };
-
-  if (interaction.deferred) {
-    await interaction.editReply(payload);
-    return;
-  }
-
-  await interaction.reply(payload);
-}
-
-function verificationPromptEmbed(guildName) {
-  return new EmbedBuilder()
-    .setColor(0x8B0000)
-    .setTitle('VERIFICATION REQUIRED')
-    .setDescription(
-      `You are not verified in the **${guildName}** personnel database.\n\n` +
-      `Run \`/verify roblox_username:<your Roblox username>\` in the server to start verification.\n\n` +
-      `You received this because server staff requested a verification reminder for unverified members.`
-    )
-    .addFields(
-      { name: 'Step 1', value: '`/verify roblox_username:<name>`' },
-      { name: 'Step 2', value: 'Put the generated code in your Roblox About/Description.' },
-      { name: 'Step 3', value: '`/confirmverify`' }
-    )
-    .setFooter({ text: 'Empire Verification System' })
-    .setTimestamp();
-}
-
-function checkVerifyEmbed(title, stats) {
-  return new EmbedBuilder()
-    .setColor(0x8B0000)
-    .setTitle(title)
-    .addFields(
-      { name: 'Verified Users Skipped', value: `\`${stats.verified}\``, inline: true },
-      { name: 'Verification DMs Sent', value: `\`${stats.sent}\``, inline: true },
-      { name: 'DMs Failed', value: `\`${stats.failed}\``, inline: true },
-      { name: 'Bots Skipped', value: `\`${stats.bots}\``, inline: true }
-    )
-    .setFooter({ text: 'Empire Verification System' })
-    .setTimestamp();
-}
-
 function verifiedRoleSetEmbed(role, stats) {
   return new EmbedBuilder()
     .setColor(0x8B0000)
@@ -448,24 +403,6 @@ const commands = [
       o.setName('user')
         .setDescription('user')
         .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName('checkverify')
-    .setDescription('owner only: DM unverified users the verification prompt')
-    .addStringOption(o =>
-      o.setName('target')
-        .setDescription('check all users or one user')
-        .setRequired(true)
-        .addChoices(
-          { name: 'all', value: 'all' },
-          { name: 'user', value: 'user' }
-        )
-    )
-    .addUserOption(o =>
-      o.setName('user')
-        .setDescription('user to check when target is user')
-        .setRequired(false)
     ),
 
   new SlashCommandBuilder()
@@ -768,146 +705,6 @@ async function requireVerificationOwner(interaction) {
   return false;
 }
 
-async function sendVerificationPrompt(member, guildName) {
-  try {
-    await member.user.send({
-      embeds: [verificationPromptEmbed(guildName)]
-    });
-
-    return true;
-  } catch (error) {
-    console.error(`Verification prompt DM failed for ${member.id}:`, error);
-    return false;
-  }
-}
-
-async function handleCheckVerifyUser(interaction, targetUser, personnelRows) {
-  if (targetUser.bot) {
-    await sendVerificationResponse(
-      interaction,
-      verificationSystemEmbed('CHECK VERIFY COMPLETE', 'Bots do not need verification.')
-    );
-    return true;
-  }
-
-  if (findUserRow(personnelRows, targetUser.id)) {
-    await sendVerificationResponse(
-      interaction,
-      verificationSystemEmbed(
-        'CHECK VERIFY COMPLETE',
-        `**${targetUser.tag}** is already verified in the personnel database.`
-      )
-    );
-    return true;
-  }
-
-  const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
-
-  if (!member) {
-    await sendVerificationResponse(
-      interaction,
-      verificationSystemEmbed('CHECK VERIFY FAILED', 'That user is not a member of this server.')
-    );
-    return true;
-  }
-
-  const sent = await sendVerificationPrompt(member, interaction.guild.name);
-
-  await sendVerificationResponse(
-    interaction,
-    verificationSystemEmbed(
-      sent ? 'VERIFICATION PROMPT SENT' : 'VERIFICATION PROMPT FAILED',
-      sent
-        ? `Sent the verification prompt to **${targetUser.tag}**.`
-        : `Could not DM **${targetUser.tag}**. They may have DMs disabled.`
-    )
-  );
-
-  return true;
-}
-
-async function handleCheckVerifyAll(interaction) {
-  await interaction.deferReply();
-
-  const lastSent = Number(await getSetting(CHECKVERIFY_ALL_LAST_SENT_KEY));
-  const now = Date.now();
-
-  if (!Number.isNaN(lastSent) && now - lastSent < CHECKVERIFY_ALL_COOLDOWN_MS) {
-    const availableAt = Math.ceil((lastSent + CHECKVERIFY_ALL_COOLDOWN_MS) / 1000);
-
-    await interaction.editReply({
-      embeds: [
-        verificationSystemEmbed(
-          'CHECK VERIFY COOLDOWN',
-          `Bulk verification DMs can only be sent once every 24 hours.\nNext available: <t:${availableAt}:R>`
-        )
-      ]
-    });
-    return true;
-  }
-
-  const personnelRows = await getRows(PERSONNEL_RANGE);
-  const members = await interaction.guild.members.fetch();
-  const stats = {
-    verified: 0,
-    sent: 0,
-    failed: 0,
-    bots: 0
-  };
-
-  for (const member of members.values()) {
-    if (member.user.bot) {
-      stats.bots++;
-      continue;
-    }
-
-    if (findUserRow(personnelRows, member.id)) {
-      stats.verified++;
-      continue;
-    }
-
-    const sent = await sendVerificationPrompt(member, interaction.guild.name);
-
-    if (sent) {
-      stats.sent++;
-    } else {
-      stats.failed++;
-    }
-  }
-
-  await interaction.editReply({
-    embeds: [checkVerifyEmbed('CHECK VERIFY COMPLETE', stats)]
-  });
-
-  await setSetting(CHECKVERIFY_ALL_LAST_SENT_KEY, String(now), 'Last /checkverify all run');
-
-  return true;
-}
-
-async function handleCheckVerify(interaction) {
-  if (!(await requireVerificationOwner(interaction))) return true;
-
-  const target = interaction.options.getString('target');
-  const targetUser = interaction.options.getUser('user');
-
-  if (target === 'user') {
-    if (!targetUser) {
-      await sendVerificationResponse(
-        interaction,
-        verificationSystemEmbed('USER REQUIRED', 'Select a user when the target option is `user`.')
-      );
-      return true;
-    }
-
-    await interaction.deferReply();
-
-    const personnelRows = await getRows(PERSONNEL_RANGE);
-    return handleCheckVerifyUser(interaction, targetUser, personnelRows);
-  }
-
-  return handleCheckVerifyAll(interaction);
-}
-
 async function backfillVerifiedRole(guild, personnelRows, role) {
   const stats = {
     applied: 0,
@@ -1028,10 +825,6 @@ async function handle(interaction) {
     });
 
     return true;
-  }
-
-  if (interaction.commandName === 'checkverify') {
-    return handleCheckVerify(interaction);
   }
 
   if (interaction.commandName === 'verifiedrole') {

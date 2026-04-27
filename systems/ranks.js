@@ -6,7 +6,7 @@ const {
 
 const { getRows, appendRow, updateRow } = require('../utils/sheets');
 const { PERSONNEL_RANGE, RANK_HISTORY_RANGE } = require('../config');
-const { requireLevel } = require('../utils/permissions');
+const { requireLevel, isOwner } = require('../utils/permissions');
 const { getCSTTime } = require('../utils/time');
 
 /* ---------------- HELPERS ---------------- */
@@ -22,6 +22,18 @@ function findUserRow(rows, discordId) {
   return null;
 }
 
+function findRankRole(guild, rankName) {
+  if (!rankName || rankName === 'Unknown' || rankName === 'No Rank' || rankName === '@everyone') {
+    return null;
+  }
+
+  return guild.roles.cache.find(role => role.name === rankName) || null;
+}
+
+function isHigherRole(role, referenceRole) {
+  return role.comparePositionTo(referenceRole) > 0;
+}
+
 function getNextCaseId(rows) {
   if (rows.length <= 1) return 1;
 
@@ -31,6 +43,80 @@ function getNextCaseId(rows) {
     .filter(id => !Number.isNaN(id));
 
   return ids.length ? Math.max(...ids) + 1 : 1;
+}
+
+async function replyRankRuleBlock(interaction, content) {
+  await interaction.reply({
+    content,
+    ephemeral: true
+  });
+}
+
+async function validateRankAction(interaction, targetUser, newRankRole, personnelRows, oldRank) {
+  if (interaction.commandName !== 'promote' && interaction.commandName !== 'demote') {
+    return true;
+  }
+
+  if (isOwner(interaction.user.id)) {
+    return true;
+  }
+
+  if (targetUser.id === interaction.user.id) {
+    await replyRankRuleBlock(interaction, 'You cannot promote or demote yourself.');
+    return false;
+  }
+
+  const moderatorRowNum = findUserRow(personnelRows, interaction.user.id);
+
+  if (!moderatorRowNum) {
+    await replyRankRuleBlock(
+      interaction,
+      'Your current rank could not be found in the personnel database, so this rank action cannot be validated.'
+    );
+    return false;
+  }
+
+  const moderatorRow = personnelRows[moderatorRowNum - 1];
+  const moderatorRank = moderatorRow[3] || 'Unknown';
+  const moderatorRankRole = findRankRole(interaction.guild, moderatorRank);
+
+  if (!moderatorRankRole) {
+    await replyRankRuleBlock(
+      interaction,
+      `Your current rank \`${moderatorRank}\` could not be matched to a Discord role, so this rank action cannot be validated.`
+    );
+    return false;
+  }
+
+  if (isHigherRole(newRankRole, moderatorRankRole)) {
+    await replyRankRuleBlock(
+      interaction,
+      `You cannot set someone to \`${newRankRole.name}\` because it is higher than your rank \`${moderatorRankRole.name}\`.`
+    );
+    return false;
+  }
+
+  if (interaction.commandName === 'demote') {
+    const oldRankRole = findRankRole(interaction.guild, oldRank);
+
+    if (!oldRankRole) {
+      await replyRankRuleBlock(
+        interaction,
+        `That user's current rank \`${oldRank}\` could not be matched to a Discord role, so this demotion cannot be validated.`
+      );
+      return false;
+    }
+
+    if (isHigherRole(newRankRole, oldRankRole)) {
+      await replyRankRuleBlock(
+        interaction,
+        `You cannot demote someone from \`${oldRankRole.name}\` to \`${newRankRole.name}\` because the new rank is higher than their current rank.`
+      );
+      return false;
+    }
+  }
+
+  return true;
 }
 
 async function applyRankRole(guild, userId, oldRankName, newRole) {
@@ -231,6 +317,10 @@ async function handle(interaction) {
     const personnelRow = personnelRows[rowNum - 1];
 
     const oldRank = personnelRow[3] || 'Unknown';
+
+    if (!(await validateRankAction(interaction, targetUser, newRankRole, personnelRows, oldRank))) {
+      return true;
+    }
 
     const actionType =
       interaction.commandName === 'promote'

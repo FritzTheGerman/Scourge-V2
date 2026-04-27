@@ -3,7 +3,7 @@ const {
   EmbedBuilder
 } = require('discord.js');
 
-const BOT_VERSION = 'v2.1.0';
+const BOT_VERSION = '1.09.1';
 const BOT_CREATOR = 'mastermyoda';
 
 function helpEmbed() {

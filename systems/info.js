@@ -23,7 +23,9 @@ function helpEmbed() {
           '`/confirmverify`\n' +
           '`/update roblox_username:<name>`\n' +
           '`/confirmupdate`\n' +
-          '`/profile user:@user`'
+          '`/profile user:@user`\n' +
+          '`/checkverify target:<all|user> user:@user`\n' +
+          '`/verifiedrole role:@role`'
       },
       {
         name: 'Moderation',

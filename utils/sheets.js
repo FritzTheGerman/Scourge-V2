@@ -49,9 +49,36 @@ async function clearRange(range) {
   });
 }
 
+async function ensureSheet(title) {
+  const spreadsheet = await sheets.spreadsheets.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    fields: 'sheets.properties.title',
+  });
+
+  const exists = spreadsheet.data.sheets?.some(sheet => {
+    return sheet.properties?.title === title;
+  });
+
+  if (exists) return;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: { title },
+          },
+        },
+      ],
+    },
+  });
+}
+
 module.exports = {
   getRows,
   appendRow,
   updateRow,
-  clearRange
+  clearRange,
+  ensureSheet
 };

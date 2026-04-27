@@ -9,12 +9,17 @@ const {
   TextInputStyle
 } = require('discord.js');
 
-const { getRows, appendRow, updateRow } = require('../utils/sheets');
+const { getRows, appendRow, updateRow, ensureSheet } = require('../utils/sheets');
 const {
   PERSONNEL_RANGE,
-  PENDING_VERIFICATIONS_RANGE
+  PENDING_VERIFICATIONS_RANGE,
+  BOT_SETTINGS_SHEET,
+  BOT_SETTINGS_RANGE
 } = require('../config');
+const { isOwner } = require('../utils/permissions');
 const { getCSTTime } = require('../utils/time');
+
+const VERIFIED_ROLE_KEY = 'verified_role_id';
 
 /* ---------------- HELPERS ---------------- */
 
@@ -44,6 +49,13 @@ function findPendingRow(rows, discordId) {
   return null;
 }
 
+function findSettingRow(rows, key) {
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] === key) return i + 1;
+  }
+  return null;
+}
+
 function getNextId(rows) {
   if (rows.length <= 1) return 1;
 
@@ -58,6 +70,15 @@ function getNextId(rows) {
 function generateCode() {
   const random = Math.floor(100000 + Math.random() * 900000);
   return `SC-${random}`;
+}
+
+function verifiedRoleStatusText(result) {
+  if (!result || result.status === 'not_configured') return '`Not configured`';
+  if (result.status === 'applied') return `Applied <@&${result.roleId}>`;
+  if (result.status === 'already_has_role') return `Already had <@&${result.roleId}>`;
+  if (result.status === 'role_not_found') return `Configured role \`${result.roleId}\` was not found`;
+  if (result.status === 'member_not_found') return 'Member was not found in this server';
+  return `Could not apply <@&${result.roleId}>`;
 }
 
 async function lookupRobloxUser(username) {
@@ -100,6 +121,99 @@ async function lookupRobloxUser(username) {
   };
 }
 
+async function getSettingsRows() {
+  await ensureSheet(BOT_SETTINGS_SHEET);
+
+  let rows = await getRows(BOT_SETTINGS_RANGE);
+
+  if (!rows.length) {
+    await updateRow(`${BOT_SETTINGS_SHEET}!A1:D1`, [
+      'Key',
+      'Value',
+      'Label',
+      'Updated At'
+    ]);
+
+    rows = await getRows(BOT_SETTINGS_RANGE);
+  }
+
+  return rows;
+}
+
+async function getSetting(key) {
+  const rows = await getSettingsRows();
+  const row = rows.slice(1).find(settingRow => settingRow[0] === key);
+  return row?.[1] || '';
+}
+
+async function setSetting(key, value, label) {
+  const rows = await getSettingsRows();
+  const rowNum = findSettingRow(rows, key);
+  const data = [key, value, label, getCSTTime()];
+
+  if (rowNum) {
+    await updateRow(`${BOT_SETTINGS_SHEET}!A${rowNum}:D${rowNum}`, data);
+  } else {
+    await appendRow(BOT_SETTINGS_RANGE, data);
+  }
+}
+
+async function getVerifiedRoleId() {
+  try {
+    const storedRoleId = await getSetting(VERIFIED_ROLE_KEY);
+    return storedRoleId || process.env.VERIFIED_ROLE_ID || '';
+  } catch (error) {
+    console.error('Verified role setting lookup failed:', error);
+    return process.env.VERIFIED_ROLE_ID || '';
+  }
+}
+
+async function resolveVerifiedRole(guild) {
+  const roleId = await getVerifiedRoleId();
+
+  if (!roleId) {
+    return { status: 'not_configured' };
+  }
+
+  const role = guild.roles.cache.get(roleId) || await guild.roles.fetch(roleId).catch(() => null);
+
+  if (!role) {
+    return { status: 'role_not_found', roleId };
+  }
+
+  return { status: 'found', role };
+}
+
+async function addVerifiedRole(member, role) {
+  if (member.roles.cache.has(role.id)) {
+    return { status: 'already_has_role', roleId: role.id };
+  }
+
+  try {
+    await member.roles.add(role);
+    return { status: 'applied', roleId: role.id };
+  } catch (error) {
+    console.error('Verified role assignment failed:', error);
+    return { status: 'failed', roleId: role.id };
+  }
+}
+
+async function applyVerifiedRole(guild, userId) {
+  const resolved = await resolveVerifiedRole(guild);
+
+  if (resolved.status !== 'found') {
+    return resolved;
+  }
+
+  const member = await guild.members.fetch(userId).catch(() => null);
+
+  if (!member) {
+    return { status: 'member_not_found', roleId: resolved.role.id };
+  }
+
+  return addVerifiedRole(member, resolved.role);
+}
+
 /* ---------------- EMBEDS ---------------- */
 
 function pendingVerifyEmbed(robloxUsername, robloxId, code) {
@@ -138,7 +252,21 @@ function pendingUpdateEmbed(robloxUsername, robloxId, code) {
     .setTimestamp();
 }
 
-function verifyEmbed(user, id, roblox, robloxId, rank) {
+function verifyEmbed(user, id, roblox, robloxId, rank, verifiedRoleResult) {
+  const fields = [
+    { name: '1: ID Number Issued', value: `\`${formatId(id)}\`` },
+    { name: '2: Roblox Username Logged', value: `\`${roblox}\`` },
+    { name: '3: Roblox ID Logged', value: `\`${robloxId}\`` },
+    { name: '4: Rank Logged', value: `\`${rank}\`` }
+  ];
+
+  if (verifiedRoleResult) {
+    fields.push({
+      name: '5: Verified Role',
+      value: verifiedRoleStatusText(verifiedRoleResult)
+    });
+  }
+
   return new EmbedBuilder()
     .setColor(0x8B0000)
     .setTitle('EMPIRE DATABASE ENTRY RECORDED')
@@ -146,12 +274,7 @@ function verifyEmbed(user, id, roblox, robloxId, rank) {
       `**Hello ${user}**\n\n` +
       `The following information has been verified and logged in the Empire Database:`
     )
-    .addFields(
-      { name: '1: ID Number Issued', value: `\`${formatId(id)}\`` },
-      { name: '2: Roblox Username Logged', value: `\`${roblox}\`` },
-      { name: '3: Roblox ID Logged', value: `\`${robloxId}\`` },
-      { name: '4: Rank Logged', value: `\`${rank}\`` }
-    )
+    .addFields(...fields)
     .setFooter({ text: 'Empire Verification System' })
     .setTimestamp();
 }
@@ -187,6 +310,63 @@ function profileEmbed(row) {
       { name: 'Roblox ID', value: `\`${row[5] || 'Unknown'}\`` },
       { name: 'Last Updated', value: `\`${row[6] || 'Unknown'}\`` },
       { name: 'Enlistment Status', value: `\`${row[7] || 'Active'}\`` }
+    )
+    .setFooter({ text: 'Empire Verification System' })
+    .setTimestamp();
+}
+
+function verificationSystemEmbed(title, description) {
+  return new EmbedBuilder()
+    .setColor(0x8B0000)
+    .setTitle(title)
+    .setDescription(description)
+    .setFooter({ text: 'Empire Verification System' })
+    .setTimestamp();
+}
+
+function verificationPromptEmbed(guildName) {
+  return new EmbedBuilder()
+    .setColor(0x8B0000)
+    .setTitle('VERIFICATION REQUIRED')
+    .setDescription(
+      `You are not verified in the **${guildName}** personnel database.\n\n` +
+      `Run \`/verify roblox_username:<your Roblox username>\` in the server to start verification.`
+    )
+    .addFields(
+      { name: 'Step 1', value: '`/verify roblox_username:<name>`' },
+      { name: 'Step 2', value: 'Put the generated code in your Roblox About/Description.' },
+      { name: 'Step 3', value: '`/confirmverify`' }
+    )
+    .setFooter({ text: 'Empire Verification System' })
+    .setTimestamp();
+}
+
+function checkVerifyEmbed(title, stats) {
+  return new EmbedBuilder()
+    .setColor(0x8B0000)
+    .setTitle(title)
+    .addFields(
+      { name: 'Verified Users Skipped', value: `\`${stats.verified}\``, inline: true },
+      { name: 'Verification DMs Sent', value: `\`${stats.sent}\``, inline: true },
+      { name: 'DMs Failed', value: `\`${stats.failed}\``, inline: true },
+      { name: 'Bots Skipped', value: `\`${stats.bots}\``, inline: true }
+    )
+    .setFooter({ text: 'Empire Verification System' })
+    .setTimestamp();
+}
+
+function verifiedRoleSetEmbed(role, stats) {
+  return new EmbedBuilder()
+    .setColor(0x8B0000)
+    .setTitle('VERIFIED ROLE UPDATED')
+    .setDescription(`Verified users will now receive ${role}.`)
+    .addFields(
+      { name: 'Role Name', value: `\`${role.name}\`` },
+      { name: 'Role ID', value: `\`${role.id}\`` },
+      { name: 'Applied Now', value: `\`${stats.applied}\``, inline: true },
+      { name: 'Already Had Role', value: `\`${stats.already}\``, inline: true },
+      { name: 'Members Missing', value: `\`${stats.missing}\``, inline: true },
+      { name: 'Failed', value: `\`${stats.failed}\``, inline: true }
     )
     .setFooter({ text: 'Empire Verification System' })
     .setTimestamp();
@@ -254,6 +434,33 @@ const commands = [
       o.setName('user')
         .setDescription('user')
         .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('checkverify')
+    .setDescription('owner only: DM unverified users the verification prompt')
+    .addStringOption(o =>
+      o.setName('target')
+        .setDescription('check all users or one user')
+        .setRequired(true)
+        .addChoices(
+          { name: 'all', value: 'all' },
+          { name: 'user', value: 'user' }
+        )
+    )
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('user to check when target is user')
+        .setRequired(false)
+    ),
+
+  new SlashCommandBuilder()
+    .setName('verifiedrole')
+    .setDescription('owner only: set the role given to verified users')
+    .addRoleOption(o =>
+      o.setName('role')
+        .setDescription('role to give verified users')
+        .setRequired(true)
     )
 ].map(c => c.toJSON());
 
@@ -267,7 +474,9 @@ async function startVerification(interaction, robloxUsername) {
 
   if (existingPersonnel) {
     await interaction.reply({
-      content: 'You are already verified. Use /update if you need to change your Roblox account.'
+      embeds: [
+        verificationSystemEmbed('ALREADY VERIFIED', 'You are already verified. Use `/update` if you need to change your Roblox account.')
+      ]
     });
     return true;
   }
@@ -276,7 +485,9 @@ async function startVerification(interaction, robloxUsername) {
 
   if (!robloxUser) {
     await interaction.reply({
-      content: 'That Roblox username was not found. Check the spelling and try again.'
+      embeds: [
+        verificationSystemEmbed('ROBLOX USER NOT FOUND', 'That Roblox username was not found. Check the spelling and try again.')
+      ]
     });
     return true;
   }
@@ -312,7 +523,9 @@ async function confirmVerification(interaction) {
 
   if (findUserRow(personnelRows, interaction.user.id)) {
     await interaction.reply({
-      content: 'You are already verified. Use /update if you need to change your Roblox account.'
+      embeds: [
+        verificationSystemEmbed('ALREADY VERIFIED', 'You are already verified. Use `/update` if you need to change your Roblox account.')
+      ]
     });
     return true;
   }
@@ -321,7 +534,9 @@ async function confirmVerification(interaction) {
 
   if (!pendingRowNum) {
     await interaction.reply({
-      content: 'You do not have a pending verification. Run /verify first.'
+      embeds: [
+        verificationSystemEmbed('NO PENDING VERIFICATION', 'You do not have a pending verification. Run `/verify` first.')
+      ]
     });
     return true;
   }
@@ -335,16 +550,21 @@ async function confirmVerification(interaction) {
 
   if (!robloxUser) {
     await interaction.reply({
-      content: 'Could not find your Roblox account anymore. Run /verify again.'
+      embeds: [
+        verificationSystemEmbed('ROBLOX USER NOT FOUND', 'Could not find your Roblox account anymore. Run `/verify` again.')
+      ]
     });
     return true;
   }
 
   if (!robloxUser.description.includes(code)) {
     await interaction.reply({
-      content:
-        `Verification failed. Put this code in your Roblox About/Description, then run /confirmverify again:\n\n` +
-        `\`${code}\``
+      embeds: [
+        verificationSystemEmbed(
+          'VERIFICATION FAILED',
+          `Put this code in your Roblox About/Description, then run \`/confirmverify\` again:\n\n\`${code}\``
+        )
+      ]
     });
     return true;
   }
@@ -373,8 +593,10 @@ async function confirmVerification(interaction) {
     ''
   ]);
 
+  const verifiedRoleResult = await applyVerifiedRole(interaction.guild, interaction.user.id);
+
   await interaction.reply({
-    embeds: [verifyEmbed(interaction.user.tag, id, robloxUser.username, robloxId, rank)],
+    embeds: [verifyEmbed(interaction.user.tag, id, robloxUser.username, robloxId, rank, verifiedRoleResult)],
     components: [updateButton()]
   });
 
@@ -387,7 +609,9 @@ async function updateVerifiedRecord(interaction, robloxUsername) {
 
   if (!rowNum) {
     await interaction.reply({
-      content: 'You are not verified yet. Use /verify first.'
+      embeds: [
+        verificationSystemEmbed('NOT VERIFIED', 'You are not verified yet. Use `/verify` first.')
+      ]
     });
     return true;
   }
@@ -396,7 +620,9 @@ async function updateVerifiedRecord(interaction, robloxUsername) {
 
   if (!robloxUser) {
     await interaction.reply({
-      content: 'That Roblox username was not found. Check the spelling and try again.'
+      embeds: [
+        verificationSystemEmbed('ROBLOX USER NOT FOUND', 'That Roblox username was not found. Check the spelling and try again.')
+      ]
     });
     return true;
   }
@@ -433,7 +659,9 @@ async function confirmUpdate(interaction) {
 
   if (!rowNum) {
     await interaction.reply({
-      content: 'You are not verified yet. Use /verify first.'
+      embeds: [
+        verificationSystemEmbed('NOT VERIFIED', 'You are not verified yet. Use `/verify` first.')
+      ]
     });
     return true;
   }
@@ -443,7 +671,9 @@ async function confirmUpdate(interaction) {
 
   if (!pendingRowNum) {
     await interaction.reply({
-      content: 'You do not have a pending verification update. Run /update first.'
+      embeds: [
+        verificationSystemEmbed('NO PENDING UPDATE', 'You do not have a pending verification update. Run `/update` first.')
+      ]
     });
     return true;
   }
@@ -457,16 +687,21 @@ async function confirmUpdate(interaction) {
 
   if (!robloxUser) {
     await interaction.reply({
-      content: 'Could not find that Roblox account. Run /update again.'
+      embeds: [
+        verificationSystemEmbed('ROBLOX USER NOT FOUND', 'Could not find that Roblox account. Run `/update` again.')
+      ]
     });
     return true;
   }
 
   if (!robloxUser.description.includes(code)) {
     await interaction.reply({
-      content:
-        `Update verification failed. Put this code in your Roblox About/Description, then run /confirmupdate again:\n\n` +
-        `\`${code}\``
+      embeds: [
+        verificationSystemEmbed(
+          'UPDATE VERIFICATION FAILED',
+          `Put this code in your Roblox About/Description, then run \`/confirmupdate\` again:\n\n\`${code}\``
+        )
+      ]
     });
     return true;
   }
@@ -502,6 +737,205 @@ async function confirmUpdate(interaction) {
   await interaction.reply({
     embeds: [updateEmbed(interaction.user.tag, row[0], robloxUser.username, robloxId, rank)],
     components: [updateButton()]
+  });
+
+  return true;
+}
+
+async function requireVerificationOwner(interaction) {
+  if (isOwner(interaction.user.id)) return true;
+
+  await interaction.reply({
+    embeds: [
+      verificationSystemEmbed('OWNER ONLY', 'Only the bot owner can use this verification management command.')
+    ]
+  });
+
+  return false;
+}
+
+async function sendVerificationPrompt(member, guildName) {
+  try {
+    await member.user.send({
+      embeds: [verificationPromptEmbed(guildName)]
+    });
+
+    return true;
+  } catch (error) {
+    console.error(`Verification prompt DM failed for ${member.id}:`, error);
+    return false;
+  }
+}
+
+async function handleCheckVerifyUser(interaction, targetUser, personnelRows) {
+  if (targetUser.bot) {
+    await interaction.reply({
+      embeds: [
+        verificationSystemEmbed('CHECK VERIFY COMPLETE', 'Bots do not need verification.')
+      ]
+    });
+    return true;
+  }
+
+  if (findUserRow(personnelRows, targetUser.id)) {
+    await interaction.reply({
+      embeds: [
+        verificationSystemEmbed(
+          'CHECK VERIFY COMPLETE',
+          `**${targetUser.tag}** is already verified in the personnel database.`
+        )
+      ]
+    });
+    return true;
+  }
+
+  const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+
+  if (!member) {
+    await interaction.reply({
+      embeds: [
+        verificationSystemEmbed('CHECK VERIFY FAILED', 'That user is not a member of this server.')
+      ]
+    });
+    return true;
+  }
+
+  const sent = await sendVerificationPrompt(member, interaction.guild.name);
+
+  await interaction.reply({
+    embeds: [
+      verificationSystemEmbed(
+        sent ? 'VERIFICATION PROMPT SENT' : 'VERIFICATION PROMPT FAILED',
+        sent
+          ? `Sent the verification prompt to **${targetUser.tag}**.`
+          : `Could not DM **${targetUser.tag}**. They may have DMs disabled.`
+      )
+    ]
+  });
+
+  return true;
+}
+
+async function handleCheckVerifyAll(interaction) {
+  await interaction.deferReply();
+
+  const personnelRows = await getRows(PERSONNEL_RANGE);
+  const members = await interaction.guild.members.fetch();
+  const stats = {
+    verified: 0,
+    sent: 0,
+    failed: 0,
+    bots: 0
+  };
+
+  for (const member of members.values()) {
+    if (member.user.bot) {
+      stats.bots++;
+      continue;
+    }
+
+    if (findUserRow(personnelRows, member.id)) {
+      stats.verified++;
+      continue;
+    }
+
+    const sent = await sendVerificationPrompt(member, interaction.guild.name);
+
+    if (sent) {
+      stats.sent++;
+    } else {
+      stats.failed++;
+    }
+  }
+
+  await interaction.editReply({
+    embeds: [checkVerifyEmbed('CHECK VERIFY COMPLETE', stats)]
+  });
+
+  return true;
+}
+
+async function handleCheckVerify(interaction) {
+  if (!(await requireVerificationOwner(interaction))) return true;
+
+  const target = interaction.options.getString('target');
+  const targetUser = interaction.options.getUser('user');
+
+  if (target === 'user') {
+    if (!targetUser) {
+      await interaction.reply({
+        embeds: [
+          verificationSystemEmbed('USER REQUIRED', 'Select a user when the target option is `user`.')
+        ]
+      });
+      return true;
+    }
+
+    const personnelRows = await getRows(PERSONNEL_RANGE);
+    return handleCheckVerifyUser(interaction, targetUser, personnelRows);
+  }
+
+  return handleCheckVerifyAll(interaction);
+}
+
+async function backfillVerifiedRole(guild, personnelRows, role) {
+  const stats = {
+    applied: 0,
+    already: 0,
+    missing: 0,
+    failed: 0
+  };
+
+  for (const row of personnelRows.slice(1)) {
+    const userId = row[2];
+
+    if (!userId) continue;
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+
+    if (!member) {
+      stats.missing++;
+      continue;
+    }
+
+    const result = await addVerifiedRole(member, role);
+
+    if (result.status === 'applied') {
+      stats.applied++;
+    } else if (result.status === 'already_has_role') {
+      stats.already++;
+    } else {
+      stats.failed++;
+    }
+  }
+
+  return stats;
+}
+
+async function handleVerifiedRole(interaction) {
+  if (!(await requireVerificationOwner(interaction))) return true;
+
+  const role = interaction.options.getRole('role');
+
+  if (role.name === '@everyone') {
+    await interaction.reply({
+      embeds: [
+        verificationSystemEmbed('INVALID VERIFIED ROLE', 'You cannot use @everyone as the verified role.')
+      ]
+    });
+    return true;
+  }
+
+  await interaction.deferReply();
+
+  await setSetting(VERIFIED_ROLE_KEY, role.id, role.name);
+  process.env.VERIFIED_ROLE_ID = role.id;
+
+  const personnelRows = await getRows(PERSONNEL_RANGE);
+  const stats = await backfillVerifiedRole(interaction.guild, personnelRows, role);
+
+  await interaction.editReply({
+    embeds: [verifiedRoleSetEmbed(role, stats)]
   });
 
   return true;
@@ -551,7 +985,11 @@ async function handle(interaction) {
     const rowNum = findUserRow(rows, user.id);
 
     if (!rowNum) {
-      await interaction.reply('User not found.');
+      await interaction.reply({
+        embeds: [
+          verificationSystemEmbed('USER NOT FOUND', 'That user is not in the personnel database.')
+        ]
+      });
       return true;
     }
 
@@ -560,6 +998,14 @@ async function handle(interaction) {
     });
 
     return true;
+  }
+
+  if (interaction.commandName === 'checkverify') {
+    return handleCheckVerify(interaction);
+  }
+
+  if (interaction.commandName === 'verifiedrole') {
+    return handleVerifiedRole(interaction);
   }
 
   return false;

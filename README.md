@@ -7,6 +7,8 @@ A modular, production-ready Discord management bot built for structured organiza
 CORE FEATURES
 
 - Verification & personnel database
+- Owner verification checks with DM prompts
+- Configurable verified member role
 - Rank system (promote, demote, set, history)
 - Moderation system (warnings + tracking)
 - Event management system
@@ -31,6 +33,9 @@ GOOGLE_SHEET_ID=
 
 OVERRIDE_MODE=no
 OWNER_DISCORD_ID=
+VERIFIED_ROLE_ID=
+
+VERIFIED_ROLE_ID is an optional fallback. /verifiedrole stores the active role in Bot Settings.
 
 --------------------------------------------------
 
@@ -112,6 +117,12 @@ C: Permission Level
 D: Added By  
 E: Added At  
 
+Bot Settings
+A: Key
+B: Value
+C: Label
+D: Updated At
+
 --------------------------------------------------
 
 PERMISSION SYSTEM
@@ -160,6 +171,16 @@ Update your record
 /profile  
 - user  
 View profile
+
+Owner Only:
+/checkverify
+- target: all or user
+- user: required when target is user
+DM unverified users the verification prompt
+
+/verifiedrole
+- role
+Set the role given to verified database users
 
 --------------------------------------------------
 

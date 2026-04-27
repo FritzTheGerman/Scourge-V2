@@ -324,6 +324,17 @@ function verificationSystemEmbed(title, description) {
     .setTimestamp();
 }
 
+async function sendVerificationResponse(interaction, embed) {
+  const payload = { embeds: [embed] };
+
+  if (interaction.deferred) {
+    await interaction.editReply(payload);
+    return;
+  }
+
+  await interaction.reply(payload);
+}
+
 function verificationPromptEmbed(guildName) {
   return new EmbedBuilder()
     .setColor(0x8B0000)
@@ -769,49 +780,45 @@ async function sendVerificationPrompt(member, guildName) {
 
 async function handleCheckVerifyUser(interaction, targetUser, personnelRows) {
   if (targetUser.bot) {
-    await interaction.reply({
-      embeds: [
-        verificationSystemEmbed('CHECK VERIFY COMPLETE', 'Bots do not need verification.')
-      ]
-    });
+    await sendVerificationResponse(
+      interaction,
+      verificationSystemEmbed('CHECK VERIFY COMPLETE', 'Bots do not need verification.')
+    );
     return true;
   }
 
   if (findUserRow(personnelRows, targetUser.id)) {
-    await interaction.reply({
-      embeds: [
-        verificationSystemEmbed(
-          'CHECK VERIFY COMPLETE',
-          `**${targetUser.tag}** is already verified in the personnel database.`
-        )
-      ]
-    });
+    await sendVerificationResponse(
+      interaction,
+      verificationSystemEmbed(
+        'CHECK VERIFY COMPLETE',
+        `**${targetUser.tag}** is already verified in the personnel database.`
+      )
+    );
     return true;
   }
 
   const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
 
   if (!member) {
-    await interaction.reply({
-      embeds: [
-        verificationSystemEmbed('CHECK VERIFY FAILED', 'That user is not a member of this server.')
-      ]
-    });
+    await sendVerificationResponse(
+      interaction,
+      verificationSystemEmbed('CHECK VERIFY FAILED', 'That user is not a member of this server.')
+    );
     return true;
   }
 
   const sent = await sendVerificationPrompt(member, interaction.guild.name);
 
-  await interaction.reply({
-    embeds: [
-      verificationSystemEmbed(
-        sent ? 'VERIFICATION PROMPT SENT' : 'VERIFICATION PROMPT FAILED',
-        sent
-          ? `Sent the verification prompt to **${targetUser.tag}**.`
-          : `Could not DM **${targetUser.tag}**. They may have DMs disabled.`
-      )
-    ]
-  });
+  await sendVerificationResponse(
+    interaction,
+    verificationSystemEmbed(
+      sent ? 'VERIFICATION PROMPT SENT' : 'VERIFICATION PROMPT FAILED',
+      sent
+        ? `Sent the verification prompt to **${targetUser.tag}**.`
+        : `Could not DM **${targetUser.tag}**. They may have DMs disabled.`
+    )
+  );
 
   return true;
 }
@@ -863,13 +870,14 @@ async function handleCheckVerify(interaction) {
 
   if (target === 'user') {
     if (!targetUser) {
-      await interaction.reply({
-        embeds: [
-          verificationSystemEmbed('USER REQUIRED', 'Select a user when the target option is `user`.')
-        ]
-      });
+      await sendVerificationResponse(
+        interaction,
+        verificationSystemEmbed('USER REQUIRED', 'Select a user when the target option is `user`.')
+      );
       return true;
     }
+
+    await interaction.deferReply();
 
     const personnelRows = await getRows(PERSONNEL_RANGE);
     return handleCheckVerifyUser(interaction, targetUser, personnelRows);

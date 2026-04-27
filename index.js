@@ -5,7 +5,8 @@ const {
   GatewayIntentBits,
   REST,
   Routes,
-  ActivityType
+  ActivityType,
+  EmbedBuilder
 } = require('discord.js');
 
 const { checkOverride } = require('./utils/override');
@@ -47,6 +48,55 @@ async function safeLogCommand(interaction, result) {
   }
 }
 
+function getInteractionName(interaction) {
+  if (interaction.isChatInputCommand()) return interaction.commandName;
+  if (interaction.isButton()) return 'button';
+  if (interaction.isModalSubmit()) return 'modal';
+  return 'interaction';
+}
+
+function createErrorCode(interaction) {
+  const command = getInteractionName(interaction)
+    .replace(/[^a-z0-9]/gi, '')
+    .toUpperCase()
+    .slice(0, 16) || 'BOT';
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase();
+
+  return `${command}-${timestamp}-${random}`;
+}
+
+function errorEmbed(errorCode) {
+  return new EmbedBuilder()
+    .setColor(0x990000)
+    .setTitle('COMMAND ERROR')
+    .setDescription('Something went wrong while running this command.')
+    .addFields(
+      { name: 'Error Code', value: `\`${errorCode}\`` },
+      { name: 'Next Step', value: 'Send this code to the bot developer.' }
+    )
+    .setFooter({ text: 'Scourge Error System' })
+    .setTimestamp();
+}
+
+async function respondWithError(interaction, errorCode) {
+  const payload = {
+    embeds: [errorEmbed(errorCode)]
+  };
+
+  if (interaction.deferred && !interaction.replied) {
+    await interaction.editReply(payload).catch(() => {});
+    return;
+  }
+
+  if (interaction.replied) {
+    await interaction.followUp(payload).catch(() => {});
+    return;
+  }
+
+  await interaction.reply(payload).catch(() => {});
+}
+
 client.on('interactionCreate', async interaction => {
   try {
     if (
@@ -63,7 +113,7 @@ client.on('interactionCreate', async interaction => {
         return;
       }
 
-      await safeLogCommand(interaction, 'Allowed');
+      safeLogCommand(interaction, 'Allowed');
     }
 
     if (await info.handle(interaction)) return;
@@ -79,20 +129,14 @@ client.on('interactionCreate', async interaction => {
     }
 
   } catch (error) {
-    console.error(error);
+    const errorCode = createErrorCode(interaction);
+
+    console.error(`[${errorCode}] Interaction error:`, error);
+
+    await respondWithError(interaction, errorCode);
 
     if (interaction.isChatInputCommand()) {
-      await safeLogCommand(interaction, 'Error');
-    }
-
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({
-        content: 'Something went wrong.'
-      }).catch(() => {});
-    } else {
-      await interaction.reply({
-        content: 'Something went wrong.'
-      }).catch(() => {});
+      safeLogCommand(interaction, `Error ${errorCode}`);
     }
   }
 });

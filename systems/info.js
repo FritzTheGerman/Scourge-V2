@@ -3,8 +3,14 @@ const {
   EmbedBuilder
 } = require('discord.js');
 
-const BOT_VERSION = '1.09.1';
+const BOT_VERSION = '1.09.3';
 const BOT_CREATOR = 'mastermyoda';
+
+function ownerMention() {
+  return process.env.OWNER_DISCORD_ID
+    ? `<@${process.env.OWNER_DISCORD_ID}>`
+    : 'the server owner';
+}
 
 function helpEmbed() {
   return new EmbedBuilder()
@@ -79,7 +85,9 @@ function helpEmbed() {
         name: 'Info',
         value:
           '`/help`\n' +
-          '`/ping`'
+          '`/ping`\n' +
+          '`/privacy`\n' +
+          '`/support`'
       }
     )
     .setFooter({ text: 'Scourge Bot • Command Help' })
@@ -105,6 +113,61 @@ function pingEmbed(interaction, sentAt) {
     .setTimestamp();
 }
 
+function privacyEmbed() {
+  return new EmbedBuilder()
+    .setColor(0x880000)
+    .setTitle('SCOURGE BOT PRIVACY')
+    .setDescription('This bot stores only the information needed to run verification, moderation, rank, event, report, and command logging systems.')
+    .addFields(
+      {
+        name: 'Data Stored',
+        value:
+          '`Discord username and ID`\n' +
+          '`Discord role/rank information`\n' +
+          '`Roblox username and ID`\n' +
+          '`Verification codes and timestamps`\n' +
+          '`Moderation, rank, report, event, and command logs`'
+      },
+      {
+        name: 'Purpose',
+        value: 'The data is used to verify members, manage personnel records, run moderation/rank systems, and maintain server logs.'
+      },
+      {
+        name: 'Storage',
+        value: 'Data is stored in the Google Sheet configured by the server owner.'
+      },
+      {
+        name: 'Data Requests',
+        value: `To ask for your data, request a correction, or request deletion, contact ${ownerMention()} or run \`/support\`.`
+      },
+      {
+        name: 'Safety',
+        value: 'The bot will never ask for your Discord password, Discord token, Roblox password, or any login credentials.'
+      }
+    )
+    .setFooter({ text: 'Scourge Bot â€¢ Privacy Information' })
+    .setTimestamp();
+}
+
+function supportEmbed() {
+  return new EmbedBuilder()
+    .setColor(0x880000)
+    .setTitle('SCOURGE BOT SUPPORT')
+    .setDescription(`For bot support, data requests, or policy concerns, contact ${ownerMention()}.`)
+    .addFields(
+      {
+        name: 'Include',
+        value: '`Your Discord username and ID`\n`What you need help with`\n`Any error code the bot showed you`'
+      },
+      {
+        name: 'Discord Policy Reports',
+        value: 'If you believe the bot or server violates Discord policy, use Discord\'s in-app report tools or official support channels.'
+      }
+    )
+    .setFooter({ text: 'Scourge Bot â€¢ Support' })
+    .setTimestamp();
+}
+
 const commands = [
   new SlashCommandBuilder()
     .setName('help')
@@ -112,7 +175,15 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('ping')
-    .setDescription('show bot speed and status')
+    .setDescription('show bot speed and status'),
+
+  new SlashCommandBuilder()
+    .setName('privacy')
+    .setDescription('show bot privacy and data information'),
+
+  new SlashCommandBuilder()
+    .setName('support')
+    .setDescription('show bot support and data request information')
 ].map(c => c.toJSON());
 
 async function handle(interaction) {
@@ -134,6 +205,20 @@ async function handle(interaction) {
       ]
     });
 
+    return true;
+  }
+
+  if (interaction.commandName === 'privacy') {
+    await interaction.reply({
+      embeds: [privacyEmbed()]
+    });
+    return true;
+  }
+
+  if (interaction.commandName === 'support') {
+    await interaction.reply({
+      embeds: [supportEmbed()]
+    });
     return true;
   }
 

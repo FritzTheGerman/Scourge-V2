@@ -16,6 +16,7 @@ CORE FEATURES
 - Dynamic admin role system (custom permission levels)
 - Full command logging (Google Sheets)
 - Override mode (owner-only control)
+- Privacy and support information commands
 
 --------------------------------------------------
 
@@ -177,6 +178,7 @@ Owner Only:
 - target: all or user
 - user: required when target is user
 DM unverified users the verification prompt
+Bulk all-user verification DMs are limited to once every 24 hours.
 
 /verifiedrole
 - role
@@ -263,6 +265,29 @@ Owner Only:
 All Admins:
 /admin roles  
 /admin mypermission  
+
+--------------------------------------------------
+
+INFO / SUPPORT
+
+/help
+/ping
+/privacy
+/support
+
+--------------------------------------------------
+
+PRIVACY / DATA REQUESTS
+
+The bot stores Discord IDs, usernames, role/rank information, Roblox usernames and IDs, verification codes, timestamps, command logs, moderation logs, rank logs, report records, and event records in the configured Google Sheet.
+
+Users can run:
+/privacy
+/support
+
+Use these commands to see what data is stored, why it is stored, and who to contact for access, correction, or deletion requests.
+
+Server owners should also keep the bot's Discord Developer Portal privacy policy and terms links accurate and up to date.
 
 --------------------------------------------------
 

@@ -20,6 +20,8 @@ const { isOwner } = require('../utils/permissions');
 const { getCSTTime } = require('../utils/time');
 
 const VERIFIED_ROLE_KEY = 'verified_role_id';
+const CHECKVERIFY_ALL_LAST_SENT_KEY = 'checkverify_all_last_sent';
+const CHECKVERIFY_ALL_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 /* ---------------- HELPERS ---------------- */
 
@@ -341,7 +343,8 @@ function verificationPromptEmbed(guildName) {
     .setTitle('VERIFICATION REQUIRED')
     .setDescription(
       `You are not verified in the **${guildName}** personnel database.\n\n` +
-      `Run \`/verify roblox_username:<your Roblox username>\` in the server to start verification.`
+      `Run \`/verify roblox_username:<your Roblox username>\` in the server to start verification.\n\n` +
+      `You received this because server staff requested a verification reminder for unverified members.`
     )
     .addFields(
       { name: 'Step 1', value: '`/verify roblox_username:<name>`' },
@@ -826,6 +829,23 @@ async function handleCheckVerifyUser(interaction, targetUser, personnelRows) {
 async function handleCheckVerifyAll(interaction) {
   await interaction.deferReply();
 
+  const lastSent = Number(await getSetting(CHECKVERIFY_ALL_LAST_SENT_KEY));
+  const now = Date.now();
+
+  if (!Number.isNaN(lastSent) && now - lastSent < CHECKVERIFY_ALL_COOLDOWN_MS) {
+    const availableAt = Math.ceil((lastSent + CHECKVERIFY_ALL_COOLDOWN_MS) / 1000);
+
+    await interaction.editReply({
+      embeds: [
+        verificationSystemEmbed(
+          'CHECK VERIFY COOLDOWN',
+          `Bulk verification DMs can only be sent once every 24 hours.\nNext available: <t:${availableAt}:R>`
+        )
+      ]
+    });
+    return true;
+  }
+
   const personnelRows = await getRows(PERSONNEL_RANGE);
   const members = await interaction.guild.members.fetch();
   const stats = {
@@ -858,6 +878,8 @@ async function handleCheckVerifyAll(interaction) {
   await interaction.editReply({
     embeds: [checkVerifyEmbed('CHECK VERIFY COMPLETE', stats)]
   });
+
+  await setSetting(CHECKVERIFY_ALL_LAST_SENT_KEY, String(now), 'Last /checkverify all run');
 
   return true;
 }

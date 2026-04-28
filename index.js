@@ -19,6 +19,7 @@ const reports = require('./systems/reports');
 const ranks = require('./systems/ranks');
 const admin = require('./systems/admin');
 const info = require('./systems/info');
+const lockdown = require('./systems/lockdown');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
@@ -123,6 +124,7 @@ client.on('interactionCreate', async interaction => {
     if (await reports.handle(interaction)) return;
     if (await ranks.handle(interaction)) return;
     if (await admin.handle(interaction)) return;
+    if (await lockdown.handle(interaction)) return;
 
     if (interaction.isChatInputCommand()) {
       await safeLogCommand(interaction, 'Unhandled Command');
@@ -149,7 +151,8 @@ async function start() {
     ...events.commands,
     ...reports.commands,
     ...ranks.commands,
-    ...admin.commands
+    ...admin.commands,
+    ...lockdown.commands
   ];
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);

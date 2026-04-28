@@ -3,7 +3,7 @@ const {
   EmbedBuilder
 } = require('discord.js');
 
-const BOT_VERSION = '1.09.3';
+const BOT_VERSION = '1.09.5';
 const BOT_CREATOR = 'mastermyoda';
 
 function ownerMention() {
@@ -79,6 +79,12 @@ function helpEmbed() {
           '`/admin override_off`\n' +
           '`/admin restart`\n' +
           '`/admin shutdown`'
+      },
+      {
+        name: 'Lockdown',
+        value:
+          '`/shithitthefan`\n' +
+          '`/shitcleanedup`'
       },
       {
         name: 'Info',

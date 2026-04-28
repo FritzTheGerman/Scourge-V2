@@ -16,6 +16,7 @@ CORE FEATURES
 - Full command logging (Google Sheets)
 - Override mode (owner-only control)
 - Privacy and support information commands
+- Level 5 raid lockdown failsafe
 
 --------------------------------------------------
 
@@ -122,6 +123,14 @@ A: Key
 B: Value
 C: Label
 D: Updated At
+
+Lockdown Backup
+A: Channel ID
+B: Channel Name
+C: Had Everyone Overwrite
+D: Allow
+E: Deny
+F: Locked At
 
 --------------------------------------------------
 
@@ -257,6 +266,17 @@ Owner Only:
 All Admins:
 /admin roles  
 /admin mypermission  
+
+--------------------------------------------------
+
+LOCKDOWN SYSTEM (Level 5)
+
+/shithitthefan
+Locks all channels so members cannot send messages.
+Saves previous @everyone channel overwrites to Lockdown Backup.
+
+/shitcleanedup
+Restores saved @everyone channel overwrites from Lockdown Backup.
 
 --------------------------------------------------
 

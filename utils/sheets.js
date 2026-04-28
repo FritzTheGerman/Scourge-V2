@@ -42,6 +42,17 @@ async function updateRow(range, data) {
   });
 }
 
+async function updateRows(range, rows) {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: rows,
+    },
+  });
+}
+
 async function clearRange(range) {
   await sheets.spreadsheets.values.clear({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
@@ -79,6 +90,7 @@ module.exports = {
   getRows,
   appendRow,
   updateRow,
+  updateRows,
   clearRange,
   ensureSheet
 };
